@@ -1,0 +1,16 @@
+# Core dependencies
+pandas>=1.5.0
+numpy>=1.21.0
+openpyxl>=3.0.0
+yfinance>=0.2.0
+requests>=2.28.0
+
+# Document generation
+python-docx>=0.8.11
+
+# Optional: Progress bars for CLI
+tqdm>=4.64.0
+
+# Development
+pytest>=7.0.0
+mypy>=1.0.0
