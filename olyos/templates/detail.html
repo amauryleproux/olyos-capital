@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ticker }} - Olyos Capital{% endblock %}
+
+{% block content %}
+<div class="detail-container">
+    <header class="detail-header">
+        <h1>{{ ticker }}</h1>
+        <h2 class="company-name">{{ company_name }}</h2>
+    </header>
+
+    <section class="fundamental-section">
+        <h3>Fundamental Data</h3>
+        <div class="fundamental-data-container">
+            {{ fundamental_data|safe }}
+        </div>
+    </section>
+
+    <section class="chart-section">
+        <h3>Price Chart</h3>
+        <div class="chart-container">
+            {{ chart_container|safe }}
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Detail page-specific JavaScript
+</script>
+{% endblock %}

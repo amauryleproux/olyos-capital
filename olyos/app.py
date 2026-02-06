@@ -12,13 +12,23 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 import urllib.parse
 
-
+from typing import List, Dict, Any, Optional, Tuple
 
 try:
     import requests
     REQUESTS_OK = True
 except ImportError:
     REQUESTS_OK = False
+
+from olyos.logger import get_logger, configure as configure_logging
+
+# Initialize loggers for different components
+log = get_logger('main')
+log_api = get_logger('api')
+log_cache = get_logger('cache')
+log_backtest = get_logger('backtest')
+log_screener = get_logger('screener')
+log_portfolio = get_logger('portfolio')
 
 
 
@@ -80,7 +90,7 @@ UNIVERSE_EUROPE = []
 
 
 
-def load_universe_from_eod(exchange='PA', max_market_cap=10e9, min_market_cap=50e6):
+def load_universe_from_eod(exchange: str = 'PA', max_market_cap: float = 10e9, min_market_cap: float = 50e6) -> List[str]:
 
     """Load list of tickers from EOD for a given exchange"""
 
@@ -121,7 +131,7 @@ def load_universe_from_eod(exchange='PA', max_market_cap=10e9, min_market_cap=50
 
         url = f"https://eodhd.com/api/exchange-symbol-list/{exchange}?api_token={EOD_API_KEY}&fmt=json"
 
-        print(f"[EOD] Loading universe for {exchange}...")
+        log_api.info(f"Loading universe for {exchange}...")
 
         response = requests.get(url, timeout=60)
 
@@ -129,7 +139,7 @@ def load_universe_from_eod(exchange='PA', max_market_cap=10e9, min_market_cap=50
 
         if response.status_code != 200:
 
-            print(f"[EOD] Error loading universe: {response.status_code}")
+            log_api.error(f"Error loading universe: {response.status_code}")
 
             return []
 
@@ -239,7 +249,7 @@ def load_universe_from_eod(exchange='PA', max_market_cap=10e9, min_market_cap=50
 
         
 
-        print(f"[EOD] Found {len(tickers)} stocks on {exchange} (filtered from {len(all_tickers)} total)")
+        log_api.info(f"Found {len(tickers)} stocks on {exchange} (filtered from {len(all_tickers)} total)")
 
         return tickers
 
@@ -247,7 +257,7 @@ def load_universe_from_eod(exchange='PA', max_market_cap=10e9, min_market_cap=50
 
     except Exception as e:
 
-        print(f"[EOD] Error: {e}")
+        log_api.error(f"Error: {e}")
 
         return []
 
@@ -287,7 +297,7 @@ def init_universes():
 
     
 
-    print(f"[UNIVERSE] France: {len(UNIVERSE_FRANCE)} tickers, Europe: {len(UNIVERSE_EUROPE)} tickers")
+    log.info(f"Universe loaded: France: {len(UNIVERSE_FRANCE)} tickers, Europe: {len(UNIVERSE_EUROPE)} tickers")
 
 
 
@@ -607,13 +617,13 @@ def read_memo_content(filepath):
 
         except Exception as e:
 
-            print(f"Error reading memo: {e}")
+            log.error(f"Error reading memo: {e}")
 
             return None
 
     except Exception as e:
 
-        print(f"Error reading memo: {e}")
+        log.error(f"Error reading memo: {e}")
 
         return None
 
@@ -987,13 +997,13 @@ def find_memo(ticker):
 
 
 
-def load_watchlist():
+def load_watchlist() -> List[str]:
 
     return load_json(CONFIG['watchlist_file'], [])
 
 
 
-def save_watchlist(w):
+def save_watchlist(w: List[str]) -> None:
 
     save_json(CONFIG['watchlist_file'], w)
 
@@ -1159,7 +1169,7 @@ def save_backtest_history(history):
 
     """Save backtests history"""
 
-    print(f"[HISTORY] Saving {len(history)} backtests to {CONFIG['backtest_history_file']}")
+    log_backtest.info(f"Saving {len(history)} backtests to {CONFIG['backtest_history_file']}")
 
     save_json(CONFIG['backtest_history_file'], history)
 
@@ -1295,11 +1305,11 @@ def run_ai_optimization(scope='france', optimization_goal='balanced'):
 
     
 
-    print("[AI OPTIMIZER] Starting optimization...")
+    log_backtest.info("AI OPTIMIZER: Starting optimization...")
 
-    print(f"   Scope: {scope}")
+    log_backtest.info(f"Scope: {scope}")
 
-    print(f"   Goal: {optimization_goal}")
+    log_backtest.info(f"Goal: {optimization_goal}")
 
     
 
@@ -1321,7 +1331,7 @@ def run_ai_optimization(scope='france', optimization_goal='balanced'):
 
     # Phase 1: Grid search with key parameter combinations
 
-    print("[AI OPTIMIZER] Phase 1: Running grid search...")
+    log_backtest.info("AI OPTIMIZER: Phase 1: Running grid search...")
 
     
 
@@ -1387,7 +1397,7 @@ def run_ai_optimization(scope='france', optimization_goal='balanced'):
 
     for i, params in enumerate(param_grid):
 
-        print(f"   [{i+1}/{len(param_grid)}] Testing PE<={params['pe_max']}, ROE>={params['roe_min']}%, {params['max_positions']} positions...")
+        log_backtest.info(f"[{i+1}/{len(param_grid)}] Testing PE<={params['pe_max']}, ROE>={params['roe_min']}%, {params['max_positions']} positions...")
 
         
 
@@ -1459,7 +1469,7 @@ def run_ai_optimization(scope='france', optimization_goal='balanced'):
 
         except Exception as e:
 
-            print(f"   Error: {e}")
+            log_backtest.error(f"Error: {e}")
 
             continue
 
@@ -1477,7 +1487,7 @@ def run_ai_optimization(scope='france', optimization_goal='balanced'):
 
     # Phase 2: Send results to Claude for analysis
 
-    print("[AI OPTIMIZER] Phase 2: AI Analysis...")
+    log_backtest.info("AI OPTIMIZER: Phase 2: AI Analysis...")
 
     
 
@@ -1665,7 +1675,7 @@ Reponds en JSON avec cette structure exacte:
 
         if results['best_params']:
 
-            print("[AI OPTIMIZER] Phase 3: Running optimal backtest...")
+            log_backtest.info("AI OPTIMIZER: Phase 3: Running optimal backtest...")
 
             
 
@@ -1717,7 +1727,7 @@ Reponds en JSON avec cette structure exacte:
 
         
 
-        print("[AI OPTIMIZER] Optimization complete!")
+        log_backtest.info("AI OPTIMIZER: Optimization complete!")
 
         return results
 
@@ -1725,7 +1735,7 @@ Reponds en JSON avec cette structure exacte:
 
     except Exception as e:
 
-        print(f"[AI OPTIMIZER] Error in AI analysis: {e}")
+        log_backtest.error(f"AI OPTIMIZER: Error in AI analysis: {e}")
 
         # Fallback: find best from grid without AI
 
@@ -1831,7 +1841,7 @@ def get_eod_ticker(ticker):
 
 
 
-def eod_get_fundamentals(ticker, use_cache=True, force_refresh=False):
+def eod_get_fundamentals(ticker: str, use_cache: bool = True, force_refresh: bool = False) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
 
     """Get fundamental data from EOD Historical Data API with smart caching"""
 
@@ -1859,7 +1869,7 @@ def eod_get_fundamentals(ticker, use_cache=True, force_refresh=False):
 
         if cached:
 
-            print(f"   [CACHE] Using offline cache for {ticker} fundamentals")
+            log_cache.info(f"Using offline cache for {ticker} fundamentals")
 
             return cached, None
 
@@ -1873,7 +1883,7 @@ def eod_get_fundamentals(ticker, use_cache=True, force_refresh=False):
 
         url = f"https://eodhd.com/api/fundamentals/{eod_ticker}?api_token={EOD_API_KEY}&fmt=json"
 
-        print(f"   [EOD] Fetching fundamentals: {ticker}")
+        log_api.info(f"Fetching fundamentals: {ticker}")
 
         response = requests.get(url, timeout=30)
 
@@ -1895,7 +1905,7 @@ def eod_get_fundamentals(ticker, use_cache=True, force_refresh=False):
 
             if cached:
 
-                print(f"   [CACHE] API error, using cached data for {ticker}")
+                log_cache.info(f"API error, using cached data for {ticker}")
 
                 return cached, None
 
@@ -1911,7 +1921,7 @@ def eod_get_fundamentals(ticker, use_cache=True, force_refresh=False):
 
         if cached:
 
-            print(f"   [CACHE] Exception, using cached data for {ticker}")
+            log_cache.info(f"Exception, using cached data for {ticker}")
 
             return cached, None
 
@@ -1919,7 +1929,7 @@ def eod_get_fundamentals(ticker, use_cache=True, force_refresh=False):
 
 
 
-def eod_get_historical_prices(ticker, start_date, end_date, use_cache=True, force_refresh=False):
+def eod_get_historical_prices(ticker: str, start_date: str, end_date: str, use_cache: bool = True, force_refresh: bool = False) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
 
     """Get historical prices from EOD with smart caching"""
 
@@ -1971,7 +1981,7 @@ def eod_get_historical_prices(ticker, start_date, end_date, use_cache=True, forc
 
         if cached and cached.get('prices'):
 
-            print(f"   [CACHE] Using offline cache for {ticker} prices")
+            log_cache.info(f"Using offline cache for {ticker} prices")
 
             return cached['prices'], None
 
@@ -1985,7 +1995,7 @@ def eod_get_historical_prices(ticker, start_date, end_date, use_cache=True, forc
 
         url = f"https://eodhd.com/api/eod/{eod_ticker}?api_token={EOD_API_KEY}&fmt=json&from={start_date}&to={end_date}"
 
-        print(f"   [EOD] Fetching prices: {ticker} ({start_date} to {end_date})")
+        log_api.info(f"Fetching prices: {ticker} ({start_date} to {end_date})")
 
         response = requests.get(url, timeout=30)
 
@@ -2005,7 +2015,7 @@ def eod_get_historical_prices(ticker, start_date, end_date, use_cache=True, forc
 
             if cached and cached.get('prices'):
 
-                print(f"   [CACHE] API error, using cached data for {ticker}")
+                log_cache.info(f"API error, using cached data for {ticker}")
 
                 return cached['prices'], None
 
@@ -2019,7 +2029,7 @@ def eod_get_historical_prices(ticker, start_date, end_date, use_cache=True, forc
 
         if cached and cached.get('prices'):
 
-            print(f"   [CACHE] Exception, using cached data for {ticker}")
+            log_cache.info(f"Exception, using cached data for {ticker}")
 
             return cached['prices'], None
 
@@ -2137,7 +2147,7 @@ def download_all_data(scope='france', start_date='2010-01-01', progress_callback
 
 
 
-def eod_get_historical_prices(ticker, start_date, end_date, use_cache=True):
+def eod_get_historical_prices(ticker: str, start_date: str, end_date: str, use_cache: bool = True) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
 
     """Get historical prices from EOD"""
 
@@ -2172,7 +2182,7 @@ def eod_get_historical_prices(ticker, start_date, end_date, use_cache=True):
 
         url = f"https://eodhd.com/api/eod/{eod_ticker}?api_token={EOD_API_KEY}&fmt=json&from={start_date}&to={end_date}"
 
-        print(f"   [EOD] Fetching prices: {eod_ticker} from {start_date} to {end_date}")
+        log_api.info(f"Fetching prices: {eod_ticker} from {start_date} to {end_date}")
 
         response = requests.get(url, timeout=30)
 
@@ -2356,7 +2366,7 @@ def extract_historical_fundamentals(fundamentals):
 
         except Exception as e:
 
-            print(f"Error parsing year {year}: {e}")
+            log.error(f"Error parsing year {year}: {e}")
 
             continue
 
@@ -2402,7 +2412,7 @@ def get_market_cap_history(ticker, prices, shares_outstanding):
 
 
 
-def run_backtest(params):
+def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
     """
 
@@ -2524,19 +2534,19 @@ def run_backtest(params):
 
     
 
-    print(f"[BACKTEST] Universe: {len(universe_tickers)} tickers ({universe_scope})")
+    log_backtest.info(f"Universe: {len(universe_tickers)} tickers ({universe_scope})")
 
-    print(f"[BACKTEST] Period: {start_date} to {end_date}")
+    log_backtest.info(f"Period: {start_date} to {end_date}")
 
-    print(f"[BACKTEST] Buy criteria: PE <= {pe_max_buy}, ROE >= {roe_min_buy*100}%")
+    log_backtest.info(f"Buy criteria: PE <= {pe_max_buy}, ROE >= {roe_min_buy*100}%")
 
-    print(f"[BACKTEST] Sell criteria: PE > {pe_sell_threshold} or ROE < {roe_min_hold*100}%")
+    log_backtest.info(f"Sell criteria: PE > {pe_sell_threshold} or ROE < {roe_min_hold*100}%")
 
     
 
     # Pre-load fundamental data for all tickers (with caching)
 
-    print(f"[BACKTEST] Loading fundamental data...")
+    log_backtest.info("Loading fundamental data...")
 
     ticker_fundamentals = {}
 
@@ -2572,11 +2582,11 @@ def run_backtest(params):
 
         if loaded_count % 20 == 0:
 
-            print(f"   Loaded {loaded_count} tickers with valid data...")
+            log_backtest.info(f"Loaded {loaded_count} tickers with valid data...")
 
     
 
-    print(f"[BACKTEST] Loaded fundamentals for {loaded_count} tickers")
+    log_backtest.info(f"Loaded fundamentals for {loaded_count} tickers")
 
     
 
@@ -2590,7 +2600,7 @@ def run_backtest(params):
 
     # Load price data for tickers with fundamentals
 
-    print(f"[BACKTEST] Loading price data...")
+    log_backtest.info("Loading price data...")
 
     ticker_prices = {}
 
@@ -2606,7 +2616,7 @@ def run_backtest(params):
 
     
 
-    print(f"[BACKTEST] Loaded prices for {len(ticker_prices)} tickers")
+    log_backtest.info(f"Loaded prices for {len(ticker_prices)} tickers")
 
     
 
@@ -2614,7 +2624,7 @@ def run_backtest(params):
 
     eod_benchmark = get_eod_ticker(benchmark)
 
-    print(f"[BACKTEST] Loading benchmark {benchmark} -> {eod_benchmark}...")
+    log_backtest.info(f"Loading benchmark {benchmark} -> {eod_benchmark}...")
 
     bench_prices_raw, err = eod_get_historical_prices(benchmark, start_date, end_date)
 
@@ -2622,11 +2632,11 @@ def run_backtest(params):
 
         results['benchmark_curve'] = [{'date': p['date'], 'price': p['close']} for p in bench_prices_raw]
 
-        print(f"[BACKTEST] Benchmark loaded: {len(results['benchmark_curve'])} data points")
+        log_backtest.info(f"Benchmark loaded: {len(results['benchmark_curve'])} data points")
 
     else:
 
-        print(f"[BACKTEST] WARNING: Could not load benchmark {benchmark}: {err}")
+        log_backtest.warning(f"Could not load benchmark {benchmark}: {err}")
 
         results['errors'].append(f"Benchmark {benchmark} not loaded: {err}")
 
@@ -2636,7 +2646,7 @@ def run_backtest(params):
 
     rebalance_dates = generate_rebalance_dates(start_date, end_date, rebalance_freq)
 
-    print(f"[BACKTEST] {len(rebalance_dates)} rebalancing periods")
+    log_backtest.info(f"{len(rebalance_dates)} rebalancing periods")
 
     
 
@@ -2658,7 +2668,7 @@ def run_backtest(params):
 
         
 
-        print(f"   [{rebal_idx+1}/{len(rebalance_dates)}] Rebalancing {rebal_date}...")
+        log_backtest.info(f"[{rebal_idx+1}/{len(rebalance_dates)}] Rebalancing {rebal_date}...")
 
         
 
@@ -3117,7 +3127,7 @@ def run_backtest(params):
 
 
 
-def calculate_higgons_score_for_backtest(pe, roe, debt_equity, net_margin):
+def calculate_higgons_score_for_backtest(pe: Optional[float], roe: Optional[float], debt_equity: Optional[float], net_margin: Optional[float]) -> int:
 
     """Calculate Higgons-style score for ranking"""
 
@@ -4473,7 +4483,7 @@ def remove_from_watchlist(ticker):
 
 
 
-def load_portfolio():
+def load_portfolio() -> Tuple[Optional[Any], Optional[str]]:
 
     if not PANDAS_OK:
 
@@ -4607,7 +4617,7 @@ def update_portfolio(df):
 
             yf_ticker = get_yf_ticker(ticker)
 
-            print(f"   Fetching {yf_ticker}...")
+            log_portfolio.info(f"Fetching {yf_ticker}...")
 
             
 
@@ -4825,7 +4835,7 @@ def update_portfolio(df):
 
         except Exception as e:
 
-            print(f"   Error {ticker}: {e}")
+            log_portfolio.error(f"Error {ticker}: {e}")
 
     
 
@@ -4837,7 +4847,7 @@ def update_portfolio(df):
 
     df.to_excel(CONFIG['portfolio_file'], index=False)
 
-    print("   Portfolio saved!")
+    log_portfolio.info("Portfolio saved!")
 
     return df
 
@@ -5059,7 +5069,7 @@ def calc_higgons_score(df):
 
         except Exception as e:
 
-            print(f"   Error calculating Higgons for row {i}: {e}")
+            log_portfolio.error(f"Error calculating Higgons for row {i}: {e}")
 
     
 
@@ -5213,7 +5223,7 @@ def run_screener(force=False, scope='france', use_eod=True, mode='standard'):
 
         if c:
 
-            print(f"[SCREENER] Using cached data for {cache_key}")
+            log_screener.info(f"Using cached data for {cache_key}")
 
             # If AI optimal mode, filter cached results
 
@@ -5239,7 +5249,7 @@ def run_screener(force=False, scope='france', use_eod=True, mode='standard'):
 
         # Use EOD data - scan full universe
 
-        print(f"[SCREENER] Using EOD data for {scope} universe...")
+        log_screener.info(f"Using EOD data for {scope} universe...")
 
         results = run_screener_eod(scope)
 
@@ -5247,7 +5257,7 @@ def run_screener(force=False, scope='france', use_eod=True, mode='standard'):
 
         # Fallback to Yahoo Finance with legacy database
 
-        print(f"[SCREENER] Using Yahoo Finance with legacy database...")
+        log_screener.info("Using Yahoo Finance with legacy database...")
 
         results = run_screener_yahoo()
 
@@ -5257,7 +5267,7 @@ def run_screener(force=False, scope='france', use_eod=True, mode='standard'):
 
         save_cache(results, cache_key)
 
-        print(f"[SCREENER] Saved {len(results)} results to cache {cache_key}")
+        log_screener.info(f"Saved {len(results)} results to cache {cache_key}")
 
     
 
@@ -5349,7 +5359,7 @@ def filter_ai_optimal(results, criteria):
 
     
 
-    print(f"[SCREENER] AI Optimal: {len(top_n)} stocks match criteria (from {len(results)} scanned)")
+    log_screener.info(f"AI Optimal: {len(top_n)} stocks match criteria (from {len(results)} scanned)")
 
     
 
@@ -5447,7 +5457,7 @@ def run_screener_eod(scope='france'):
 
     
 
-    print(f"[SCREENER] Scanning {len(all_tickers)} tickers...")
+    log_screener.info(f"Scanning {len(all_tickers)} tickers...")
 
 
 
@@ -5463,7 +5473,7 @@ def run_screener_eod(scope='france'):
 
 
 
-    print(f"[SCREENER] Processing up to {max_tickers} tickers for {scope}...")
+    log_screener.info(f"Processing up to {max_tickers} tickers for {scope}...")
 
 
 
@@ -5471,7 +5481,7 @@ def run_screener_eod(scope='france'):
 
         if processed >= max_tickers:
 
-            print(f"[SCREENER] Reached limit of {max_tickers} tickers")
+            log_screener.info(f"Reached limit of {max_tickers} tickers")
 
             break
 
@@ -5666,19 +5676,19 @@ def run_screener_eod(scope='france'):
 
             if processed <= 3:
 
-                print(f"   [DEBUG] {ticker}: market_cap={market_cap}, momentum_12m={momentum_12m}")
+                log_screener.debug(f"{ticker}: market_cap={market_cap}, momentum_12m={momentum_12m}")
 
 
 
             if processed % 50 == 0:
 
-                print(f"   Processed {processed} tickers...")
+                log_screener.info(f"Processed {processed} tickers...")
 
                 
 
         except Exception as e:
 
-            print(f"   Error processing {ticker}: {e}")
+            log_screener.error(f"Error processing {ticker}: {e}")
 
             continue
 
@@ -5690,7 +5700,7 @@ def run_screener_eod(scope='france'):
 
     
 
-    print(f"[SCREENER] Found {len(results)} stocks with valid data")
+    log_screener.info(f"Found {len(results)} stocks with valid data")
 
     return results
 
@@ -5838,7 +5848,7 @@ def refresh_screener_data_background(scope='france'):
 
 
 
-        print(f"[REFRESH] Total universe: {len(all_tickers)} tickers for {scope}")
+        log_cache.info(f"REFRESH: Total universe: {len(all_tickers)} tickers for {scope}")
 
 
 
@@ -5885,7 +5895,7 @@ def refresh_screener_data_background(scope='france'):
 
 
 
-        print(f"[REFRESH] {len(tickers_to_refresh)} tickers need refresh, {skipped} already up-to-date")
+        log_cache.info(f"REFRESH: {len(tickers_to_refresh)} tickers need refresh, {skipped} already up-to-date")
 
 
 
@@ -5903,7 +5913,7 @@ def refresh_screener_data_background(scope='france'):
 
 
 
-        print(f"[REFRESH] Starting background refresh of {len(tickers_to_refresh)} tickers...")
+        log_cache.info(f"REFRESH: Starting background refresh of {len(tickers_to_refresh)} tickers...")
 
 
 
@@ -5957,7 +5967,7 @@ def refresh_screener_data_background(scope='france'):
 
             except Exception as e:
 
-                print(f"   [REFRESH] Error refreshing prices for {ticker}: {e}")
+                log_cache.error(f"REFRESH: Error refreshing prices for {ticker}: {e}")
 
 
 
@@ -5965,7 +5975,7 @@ def refresh_screener_data_background(scope='france'):
 
             if (i + 1) % 20 == 0:
 
-                print(f"   [REFRESH] Progress: {i+1}/{REFRESH_STATUS['total']} tickers")
+                log_cache.info(f"REFRESH: Progress: {i+1}/{REFRESH_STATUS['total']} tickers")
 
 
 
@@ -5985,13 +5995,13 @@ def refresh_screener_data_background(scope='france'):
 
                 os.remove(cache_file)
 
-                print(f"[REFRESH] Deleted cache: {os.path.basename(cache_file)}")
+                log_cache.info(f"REFRESH: Deleted cache: {os.path.basename(cache_file)}")
 
 
 
         # Re-run screener to update cache
 
-        print(f"[REFRESH] Regenerating screener cache with new data...")
+        log_cache.info("REFRESH: Regenerating screener cache with new data...")
 
         run_screener(force=True, scope=scope, mode='standard')
 
@@ -5999,7 +6009,7 @@ def refresh_screener_data_background(scope='france'):
 
         REFRESH_STATUS['message'] = 'Done!'
 
-        print(f"[REFRESH] Background refresh completed!")
+        log_cache.info("REFRESH: Background refresh completed!")
 
 
 
@@ -6007,7 +6017,7 @@ def refresh_screener_data_background(scope='france'):
 
         REFRESH_STATUS['message'] = f'Error: {str(e)}'
 
-        print(f"[REFRESH] Error during background refresh: {e}")
+        log_cache.error(f"REFRESH: Error during background refresh: {e}")
 
     finally:
 
@@ -6017,7 +6027,7 @@ def refresh_screener_data_background(scope='france'):
 
 
 
-def calculate_higgons_score_for_screener(pe, roe, debt_equity, profit_margin):
+def calculate_higgons_score_for_screener(pe: Optional[float], roe: Optional[float], debt_equity: Optional[float], profit_margin: Optional[float]) -> int:
 
     """Calculate Higgons-style score for screener"""
 
@@ -6185,7 +6195,7 @@ def get_country_from_exchange(exchange):
 
 
 
-def get_security_data(ticker):
+def get_security_data(ticker: str) -> Dict[str, Any]:
 
     """Get detailed security data for the detail page"""
 
@@ -6295,13 +6305,13 @@ def get_security_data(ticker):
 
             except Exception as e:
 
-                print(f"Error fetching history for {ticker}: {e}")
+                log_api.error(f"Error fetching history for {ticker}: {e}")
 
                 
 
         except Exception as e:
 
-            print(f"Error fetching {ticker}: {e}")
+            log_api.error(f"Error fetching {ticker}: {e}")
 
     return data
 
@@ -7172,7 +7182,7 @@ def fmt_val(v, decimals=2):
 
 
 
-def gen_html(df, screener, watchlist, update_history=False):
+def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], update_history: bool = False) -> str:
 
     pos = df.to_dict('records')
 
@@ -10470,7 +10480,7 @@ function deletePosition(ticker) {{
 
 
 
-def gen_detail_html(data):
+def gen_detail_html(data: Dict[str, Any]) -> str:
 
     def fmt(v, pre='', suf='', dec=2):
 
@@ -11433,15 +11443,15 @@ class Handler(SimpleHTTPRequestHandler):
 
                 
 
-                print(f"[BACKTEST] Starting with params:")
+                log_backtest.info("Starting with params:")
 
-                print(f"   Scope: {backtest_params['universe_scope']}")
+                log_backtest.info(f"Scope: {backtest_params['universe_scope']}")
 
-                print(f"   Period: {backtest_params['start_date']} to {backtest_params['end_date']}")
+                log_backtest.info(f"Period: {backtest_params['start_date']} to {backtest_params['end_date']}")
 
-                print(f"   BUY: PE <= {backtest_params['pe_max']}, ROE >= {backtest_params['roe_min']}%")
+                log_backtest.info(f"BUY: PE <= {backtest_params['pe_max']}, ROE >= {backtest_params['roe_min']}%")
 
-                print(f"   SELL: PE > {backtest_params['pe_sell']} or ROE < {backtest_params['roe_min_hold']}%")
+                log_backtest.info(f"SELL: PE > {backtest_params['pe_sell']} or ROE < {backtest_params['roe_min_hold']}%")
 
                 
 
@@ -11457,7 +11467,7 @@ class Handler(SimpleHTTPRequestHandler):
 
                     results['saved_id'] = bt_id
 
-                    print(f"[BACKTEST] Saved to history with ID: {bt_id}")
+                    log_backtest.info(f"Saved to history with ID: {bt_id}")
 
                 
 
@@ -11476,7 +11486,7 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
 
                 # Log error server-side only (don't expose details to client)
-                print(f"[BACKTEST ERROR] {e}")
+                log_backtest.error(f"Backtest error: {e}")
 
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
@@ -11491,7 +11501,7 @@ class Handler(SimpleHTTPRequestHandler):
 
             scope = q.get('scope', ['france'])[0]
 
-            print(f"[CACHE] Downloading all data for {scope}...")
+            log_cache.info(f"Downloading all data for {scope}...")
 
             
 
@@ -11508,7 +11518,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(result).encode())
 
             except Exception as e:
-                print(f"[DOWNLOAD ERROR] {e}")
+                log_cache.error(f"Download error: {e}")
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -11522,7 +11532,7 @@ class Handler(SimpleHTTPRequestHandler):
 
             goal = q.get('goal', ['balanced'])[0]
 
-            print(f"[AI OPTIMIZER] Starting optimization for {scope} with goal: {goal}")
+            log_backtest.info(f"AI OPTIMIZER: Starting optimization for {scope} with goal: {goal}")
 
             
 
@@ -11539,7 +11549,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(result).encode())
 
             except Exception as e:
-                print(f"[AI OPTIMIZE ERROR] {e}")
+                log_backtest.error(f"AI OPTIMIZE error: {e}")
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -11568,7 +11578,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({'message': 'Cache cleared successfully'}).encode())
 
             except Exception as e:
-                print(f"[CLEAR CACHE ERROR] {e}")
+                log_cache.error(f"Clear cache error: {e}")
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
@@ -11658,7 +11668,7 @@ class Handler(SimpleHTTPRequestHandler):
 
             history = load_backtest_history()
 
-            print(f"[HISTORY] Loading backtest history: {len(history)} items from {CONFIG['backtest_history_file']}")
+            log_backtest.info(f"Loading backtest history: {len(history)} items from {CONFIG['backtest_history_file']}")
 
             self.wfile.write(json.dumps(history).encode())
 
@@ -11729,7 +11739,7 @@ class Handler(SimpleHTTPRequestHandler):
             fp = os.path.abspath(fp)
             safe_dir = os.path.abspath(CONFIG.get('memo_dir', '.'))
             if not fp.startswith(safe_dir):
-                print(f"[SECURITY] Blocked path traversal attempt: {fp}")
+                log.warning(f"Blocked path traversal attempt: {fp}")
                 self.send_response(403); self.end_headers(); return
 
             if os.path.exists(fp):
@@ -11954,7 +11964,7 @@ class Handler(SimpleHTTPRequestHandler):
 
         if do_refresh:
 
-            print("Refreshing portfolio data...")
+            log_portfolio.info("Refreshing portfolio data...")
 
             df = update_portfolio(df)
 
@@ -11982,25 +11992,25 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
 
-    print("="*50)
+    log.info("="*50)
 
-    print("   BLOOMBERG PORTFOLIO TERMINAL v3.1")
+    log.info("   BLOOMBERG PORTFOLIO TERMINAL v3.1")
 
-    print("="*50)
+    log.info("="*50)
 
     if not os.path.exists(CONFIG['portfolio_file']):
 
-        print(f"Erreur: {CONFIG['portfolio_file']} non trouve")
+        log.error(f"Erreur: {CONFIG['portfolio_file']} non trouve")
 
         sys.exit(1)
 
-    print(f"http://localhost:{CONFIG['port']}")
+    log.info(f"http://localhost:{CONFIG['port']}")
 
     threading.Timer(1, lambda: webbrowser.open(f"http://localhost:{CONFIG['port']}")).start()
 
-    print("Ctrl+C pour arreter")
+    log.info("Ctrl+C pour arreter")
 
-    print("-"*50)
+    log.info("-"*50)
 
     try:
 
@@ -12008,5 +12018,5 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
 
-        print("\nBye")
+        log.info("Bye")
 

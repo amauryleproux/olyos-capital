@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Screener - Olyos Capital{% endblock %}
+
+{% block content %}
+<div class="screener-container">
+    <header class="screener-header">
+        <h1>Stock Screener</h1>
+    </header>
+
+    <section class="filter-section">
+        <h2>Filters</h2>
+        <div class="filter-form-container">
+            {{ filter_form|safe }}
+        </div>
+    </section>
+
+    <section class="results-section">
+        <h2>Results</h2>
+        <div class="results-table-container">
+            {{ results_table|safe }}
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Screener-specific JavaScript
+</script>
+{% endblock %}

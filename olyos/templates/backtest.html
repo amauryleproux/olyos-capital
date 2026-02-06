@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest - Olyos Capital{% endblock %}
+
+{% block content %}
+<div class="backtest-container">
+    <header class="backtest-header">
+        <h1>Backtest Results</h1>
+    </header>
+
+    <section class="results-section">
+        <h2>Performance Metrics</h2>
+        <div class="backtest-results-container">
+            {{ backtest_results|safe }}
+        </div>
+    </section>
+
+    <section class="equity-curve-section">
+        <h2>Equity Curve</h2>
+        <div class="equity-curve-container">
+            {{ equity_curve|safe }}
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Backtest-specific JavaScript
+</script>
+{% endblock %}
