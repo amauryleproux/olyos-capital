@@ -2,9 +2,15 @@
 
 """PORTFOLIO TERMINAL v4.0 - Bloomberg Style with Backtesting"""
 
+import os, sys
 
+# Add parent directory to path for module imports when running directly
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_parent_dir = os.path.dirname(_current_dir)
+if _parent_dir not in sys.path:
+    sys.path.insert(0, _parent_dir)
 
-import os, sys, json, webbrowser, threading, math, glob, html
+import json, webbrowser, threading, math, glob, html
 
 from datetime import datetime, timedelta
 
@@ -21,6 +27,14 @@ except ImportError:
     REQUESTS_OK = False
 
 from olyos.logger import get_logger, configure as configure_logging
+from olyos.services.api_client import ParallelAPIClient, BatchProgress
+from olyos.services.alerts import AlertsService, AlertConfig, create_alerts_service
+from olyos.services.benchmark import BenchmarkService, BENCHMARKS, create_benchmark_service
+from olyos.services.dividends import DividendsService, create_dividends_service
+from olyos.services.position_manager import PositionManager, create_position_manager
+from olyos.services.pdf_report import PDFReportService, create_pdf_report_service
+from olyos.services.insider import InsiderService, InsiderTransaction, TransactionType, create_insider_service
+from olyos.services.rebalancing import RebalancingService, RebalanceConfig, create_rebalancing_service
 
 # Initialize loggers for different components
 log = get_logger('main')
@@ -32,26 +46,21 @@ log_portfolio = get_logger('portfolio')
 
 
 
+# Data directory (relative to project root)
+_DATA_DIR = os.path.join(_parent_dir, 'data')
+
 CONFIG = {
-
-    'portfolio_file': 'portfolio.xlsx',
-
-    'watchlist_file': 'watchlist.json',
-
-    'screener_cache_file': 'screener_cache.json',
-
-    'nav_history_file': 'nav_history.json',
-
-    'backtest_cache_dir': 'backtest_cache',
-
-    'backtest_history_file': 'backtest_history.json',
-
-    'memo_dir': '.',
-
+    'portfolio_file': os.path.join(_DATA_DIR, 'portfolio.xlsx'),
+    'transactions_file': os.path.join(_DATA_DIR, 'transactions.json'),
+    'watchlist_file': os.path.join(_DATA_DIR, 'watchlist.json'),
+    'screener_cache_file': os.path.join(_DATA_DIR, 'screener_cache.json'),
+    'nav_history_file': os.path.join(_DATA_DIR, 'nav_history.json'),
+    'backtest_cache_dir': os.path.join(_DATA_DIR, 'backtest_cache'),
+    'backtest_history_file': os.path.join(_DATA_DIR, 'backtest_history.json'),
+    'memo_dir': _DATA_DIR,
+    'reports_dir': os.path.join(_parent_dir, 'docs', 'reports'),
     'port': 8080,
-
     'cache_days': 30
-
 }
 
 
@@ -80,6 +89,126 @@ REFRESH_STATUS = {
 
 }
 
+# Global alerts service (initialized lazily)
+_ALERTS_SERVICE = None
+
+def get_alerts_service():
+    """Get or create the alerts service singleton"""
+    global _ALERTS_SERVICE
+    if _ALERTS_SERVICE is None:
+        _ALERTS_SERVICE = AlertsService(
+            watchlist_file=CONFIG['watchlist_file'],
+            get_fundamentals_func=eod_get_fundamentals,
+            get_prices_func=eod_get_historical_prices
+        )
+    return _ALERTS_SERVICE
+
+# Global benchmark service (initialized lazily)
+_BENCHMARK_SERVICE = None
+
+def get_benchmark_service():
+    """Get or create the benchmark service singleton"""
+    global _BENCHMARK_SERVICE
+    if _BENCHMARK_SERVICE is None:
+        benchmark_cache_dir = os.path.join(_DATA_DIR, 'benchmark_cache')
+        _BENCHMARK_SERVICE = BenchmarkService(
+            cache_dir=benchmark_cache_dir,
+            nav_history_file=CONFIG['nav_history_file'],
+            get_prices_func=eod_get_historical_prices
+        )
+    return _BENCHMARK_SERVICE
+
+# Global dividends service (initialized lazily)
+_DIVIDENDS_SERVICE = None
+
+def get_dividends_service():
+    """Get or create the dividends service singleton"""
+    global _DIVIDENDS_SERVICE
+    if _DIVIDENDS_SERVICE is None:
+        dividends_cache_file = os.path.join(_DATA_DIR, 'dividends_cache.json')
+        _DIVIDENDS_SERVICE = DividendsService(
+            cache_file=dividends_cache_file,
+            get_dividends_func=eod_get_dividends,
+            get_fundamentals_func=eod_get_fundamentals
+        )
+    return _DIVIDENDS_SERVICE
+
+# Global position manager (initialized lazily)
+_POSITION_MANAGER = None
+
+def get_position_manager():
+    """Get or create the position manager singleton"""
+    global _POSITION_MANAGER
+    if _POSITION_MANAGER is None:
+        def get_current_price(ticker: str) -> float:
+            """Get current price for a ticker from cache or API"""
+            try:
+                fund, err = eod_get_fundamentals(ticker, use_cache=True)
+                if fund and not err:
+                    price = fund.get('General', {}).get('LastClose')
+                    if price:
+                        return float(price)
+            except:
+                pass
+            return 0.0
+
+        _POSITION_MANAGER = PositionManager(
+            transactions_file=CONFIG['transactions_file'],
+            get_price_func=get_current_price
+        )
+    return _POSITION_MANAGER
+
+# Global PDF report service (initialized lazily)
+_PDF_REPORT_SERVICE = None
+
+def get_pdf_report_service():
+    """Get or create the PDF report service singleton"""
+    global _PDF_REPORT_SERVICE
+    if _PDF_REPORT_SERVICE is None:
+        # Ensure reports directory exists
+        os.makedirs(CONFIG['reports_dir'], exist_ok=True)
+
+        _PDF_REPORT_SERVICE = PDFReportService(
+            reports_dir=CONFIG['reports_dir'],
+            nav_history_file=CONFIG['nav_history_file'],
+            portfolio_func=load_portfolio,
+            benchmark_service=get_benchmark_service(),
+            position_manager=get_position_manager()
+        )
+    return _PDF_REPORT_SERVICE
+
+# Global Insider service (initialized lazily)
+_INSIDER_SERVICE = None
+
+def get_insider_service():
+    """Get or create the Insider service singleton"""
+    global _INSIDER_SERVICE
+    if _INSIDER_SERVICE is None:
+        cache_file = os.path.join(_DATA_DIR, 'insider_cache.json')
+        _INSIDER_SERVICE = InsiderService(
+            eod_api_key=EOD_API_KEY or '',
+            cache_file=cache_file,
+            cache_days=3
+        )
+    return _INSIDER_SERVICE
+
+# Global Rebalancing service (initialized lazily)
+_REBALANCING_SERVICE = None
+
+def get_rebalancing_service():
+    """Get or create the Rebalancing service singleton"""
+    global _REBALANCING_SERVICE
+    if _REBALANCING_SERVICE is None:
+        _REBALANCING_SERVICE = RebalancingService(
+            config=RebalanceConfig(
+                max_position_weight=10.0,
+                min_position_weight=2.0,
+                max_sector_weight=30.0,
+                min_higgons_score=4,
+                max_pe=17.0
+            )
+        )
+    return _REBALANCING_SERVICE
 
 
 # Universe of tickers for backtesting
@@ -1040,6 +1169,8 @@ def ensure_cache_dir():
     os.makedirs(os.path.join(CACHE_DIR, 'prices'), exist_ok=True)
 
     os.makedirs(os.path.join(CACHE_DIR, 'universe'), exist_ok=True)
+
+    os.makedirs(os.path.join(CACHE_DIR, 'dividends'), exist_ok=True)
 
 
 
@@ -2036,6 +2167,45 @@ def eod_get_historical_prices(ticker: str, start_date: str, end_date: str, use_c
         return None, str(e)
 
 
+def eod_get_dividends(ticker: str, start_date: str, end_date: str, use_cache: bool = True) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+    """Get dividend history from EOD API"""
+    cache_key = f"div_{ticker}_{start_date}_{end_date}"
+    cache_file = get_cache_path('dividends', cache_key)
+
+    # Try cache first
+    if use_cache and is_cache_valid(cache_file, 7):  # 7 days cache for dividends
+        cached = load_from_cache(cache_file)
+        if cached and cached.get('dividends') is not None:
+            return cached['dividends'], None
+
+    if not EOD_OK:
+        cached = load_from_cache(cache_file)
+        if cached and cached.get('dividends') is not None:
+            return cached['dividends'], None
+        return None, "EOD API not configured"
+
+    try:
+        eod_ticker = get_eod_ticker(ticker)
+        url = f"https://eodhd.com/api/div/{eod_ticker}?api_token={EOD_API_KEY}&fmt=json&from={start_date}&to={end_date}"
+        log_api.info(f"Fetching dividends: {ticker} ({start_date} to {end_date})")
+        response = requests.get(url, timeout=30)
+
+        if response.status_code == 200:
+            data = response.json()
+            save_to_cache(cache_file, {'dividends': data})
+            return data, None
+        else:
+            cached = load_from_cache(cache_file)
+            if cached and cached.get('dividends') is not None:
+                return cached['dividends'], None
+            return [], None  # Return empty list if no dividends
+
+    except Exception as e:
+        cached = load_from_cache(cache_file)
+        if cached and cached.get('dividends') is not None:
+            return cached['dividends'], None
+        return None, str(e)
+
 
 def download_all_data(scope='france', start_date='2010-01-01', progress_callback=None):
 
@@ -2240,9 +2410,13 @@ def extract_historical_fundamentals(fundamentals):
 
     balance = financials.get('Balance_Sheet', {}).get('yearly', {})
 
+    # Cash Flow Statement
+
+    cashflow = financials.get('Cash_Flow', {}).get('yearly', {})
+
     
 
-    years = sorted(set(list(income.keys()) + list(balance.keys())), reverse=True)
+    years = sorted(set(list(income.keys()) + list(balance.keys()) + list(cashflow.keys())), reverse=True)
 
     
 
@@ -2326,7 +2500,19 @@ def extract_historical_fundamentals(fundamentals):
 
             fcf = float(inc.get('freeCashFlow', 0) or 0) if 'freeCashFlow' in inc else None
 
-            
+
+
+            # Operating Cash Flow from Cash Flow Statement
+
+            cf = cashflow.get(year, {})
+
+            operating_cashflow = float(cf.get('totalCashFromOperatingActivities', 0) or 0)
+
+            if operating_cashflow == 0:
+
+                operating_cashflow = float(cf.get('operatingCashFlow', 0) or 0)
+
+
 
             history.append({
 
@@ -2358,7 +2544,9 @@ def extract_historical_fundamentals(fundamentals):
 
                 'current_ratio': current_ratio,
 
-                'fcf': fcf
+                'fcf': fcf,
+
+                'operating_cashflow': operating_cashflow
 
             })
 
@@ -2484,7 +2672,9 @@ def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
     debt_equity_max = float(params.get('debt_equity_max', 100)) / 100
 
-    
+    pcf_max_buy = float(params.get('pcf_max', 10))  # P/CF maximum for buying
+
+
 
     # Higgons SELL criteria
 
@@ -2538,7 +2728,7 @@ def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
     log_backtest.info(f"Period: {start_date} to {end_date}")
 
-    log_backtest.info(f"Buy criteria: PE <= {pe_max_buy}, ROE >= {roe_min_buy*100}%")
+    log_backtest.info(f"Buy criteria: PE <= {pe_max_buy}, ROE >= {roe_min_buy*100}%, P/CF <= {pcf_max_buy}")
 
     log_backtest.info(f"Sell criteria: PE > {pe_sell_threshold} or ROE < {roe_min_hold*100}%")
 
@@ -2722,6 +2912,8 @@ def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
             equity = fund.get('equity', 0)
 
+            operating_cashflow = fund.get('operating_cashflow', 0)
+
             
 
             # Calculate PE (approximation using earnings yield)
@@ -2740,7 +2932,19 @@ def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
                 pe_approx = None
 
-            
+
+
+            # Calculate P/CF proxy: Book Value / Operating Cash Flow
+
+            # Lower is better (similar to PE - lower means cheaper on cash flow basis)
+
+            pcf_proxy = None
+
+            if equity and equity > 0 and operating_cashflow and operating_cashflow > 0:
+
+                pcf_proxy = equity / operating_cashflow
+
+
 
             # Check if meets BUY criteria
 
@@ -2756,13 +2960,17 @@ def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
                 continue
 
-            
+            if pcf_proxy and pcf_proxy > pcf_max_buy:
 
-            # Calculate Higgons Score
+                continue
 
-            score = calculate_higgons_score_for_backtest(pe_approx, roe, debt_eq, net_margin)
 
-            
+
+            # Calculate Higgons Score (now includes P/CF)
+
+            score = calculate_higgons_score_for_backtest(pe_approx, roe, debt_eq, net_margin, pcf_proxy)
+
+
 
             screened.append({
 
@@ -2782,6 +2990,8 @@ def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
                 'net_margin': net_margin,
 
+                'pcf': pcf_proxy,
+
                 'score': score
 
             })
@@ -2800,7 +3010,7 @@ def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
             'candidates': len(screened),
 
-            'top_10': [{'ticker': s['ticker'], 'score': s['score'], 'pe': s['pe'], 'roe': s['roe']} for s in screened[:10]]
+            'top_10': [{'ticker': s['ticker'], 'score': s['score'], 'pe': s['pe'], 'roe': s['roe'], 'pcf': s.get('pcf')} for s in screened[:10]]
 
         })
 
@@ -3127,13 +3337,13 @@ def run_backtest(params: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
-def calculate_higgons_score_for_backtest(pe: Optional[float], roe: Optional[float], debt_equity: Optional[float], net_margin: Optional[float]) -> int:
+def calculate_higgons_score_for_backtest(pe: Optional[float], roe: Optional[float], debt_equity: Optional[float], net_margin: Optional[float], pcf: Optional[float] = None) -> int:
 
-    """Calculate Higgons-style score for ranking"""
+    """Calculate Higgons-style score for ranking (max 115 points with P/CF)"""
 
     score = 0
 
-    
+
 
     # PE Score (0-35 points) - lower is better
 
@@ -3149,7 +3359,23 @@ def calculate_higgons_score_for_backtest(pe: Optional[float], roe: Optional[floa
 
         elif pe < 20: score += 5
 
-    
+
+
+    # P/CF Score (0-15 points) - lower is better
+
+    if pcf and pcf > 0:
+
+        if pcf <= 6: score += 15
+
+        elif pcf <= 8: score += 12
+
+        elif pcf <= 10: score += 9
+
+        elif pcf <= 12: score += 6
+
+        elif pcf <= 15: score += 3
+
+
 
     # ROE Score (0-30 points) - higher is better
 
@@ -3165,7 +3391,7 @@ def calculate_higgons_score_for_backtest(pe: Optional[float], roe: Optional[floa
 
         elif roe >= 0.10: score += 10
 
-    
+
 
     # Debt/Equity Score (0-20 points) - lower is better
 
@@ -3179,7 +3405,7 @@ def calculate_higgons_score_for_backtest(pe: Optional[float], roe: Optional[floa
 
         elif debt_equity <= 1.0: score += 5
 
-    
+
 
     # Net Margin Score (0-15 points) - higher is better
 
@@ -3191,7 +3417,7 @@ def calculate_higgons_score_for_backtest(pe: Optional[float], roe: Optional[floa
 
         elif net_margin >= 0.05: score += 5
 
-    
+
 
     return score
 
@@ -4397,15 +4623,23 @@ def save_nav_history(history):
 
 
 
-def update_nav_history(nav, total_cost, pnl, pnl_pct):
+def update_nav_history(nav, total_cost, pnl, pnl_pct, realized_pnl=0.0):
 
-    """Add today's NAV to history (one entry per day)"""
+    """Add today's NAV to history (one entry per day)
+
+
+
+    NAV = market value of active positions + cumulative realized PnL
+
+    This ensures that selling positions with gains doesn't show as a NAV drop.
+
+    """
 
     history = load_nav_history()
 
     today = datetime.now().strftime('%Y-%m-%d')
 
-    
+
 
     # Check if we already have an entry for today
 
@@ -4419,7 +4653,7 @@ def update_nav_history(nav, total_cost, pnl, pnl_pct):
 
             break
 
-    
+
 
     new_entry = {
 
@@ -4431,7 +4665,9 @@ def update_nav_history(nav, total_cost, pnl, pnl_pct):
 
         'pnl': round(pnl, 2),
 
-        'pnl_pct': round(pnl_pct, 2)
+        'pnl_pct': round(pnl_pct, 2),
+
+        'realized_pnl': round(realized_pnl, 2)
 
     }
 
@@ -4743,7 +4979,13 @@ def update_portfolio(df):
 
                 df.at[i, 'fcf_yield'] = free_cashflow / market_cap
 
-            
+
+            # P/CF = Market Cap / Operating Cash Flow (Price to Cash Flow ratio)
+            # Lower is better - indicates company generates cash relative to its valuation
+            if op_cashflow and market_cap and op_cashflow > 0:
+                pcf = market_cap / op_cashflow
+                df.at[i, 'pcf'] = pcf
+                df.at[i, 'price_to_cashflow'] = pcf  # Alias for compatibility
 
             # FCF to Net Income ratio
 
@@ -5913,69 +6155,48 @@ def refresh_screener_data_background(scope='france'):
 
 
 
-        log_cache.info(f"REFRESH: Starting background refresh of {len(tickers_to_refresh)} tickers...")
+        log_cache.info(f"REFRESH: Starting PARALLEL refresh of {len(tickers_to_refresh)} tickers...")
 
+        # Use ParallelAPIClient for faster fetching (10 workers, rate limited to 5/s for EOD API)
+        client = ParallelAPIClient(max_workers=10, rate_limit=5.0)
 
+        # Extract ticker strings for batch operations
+        ticker_list = [stock['ticker'] for stock in tickers_to_refresh]
 
-        for i, stock in enumerate(tickers_to_refresh):
+        # Batch fetch fundamentals in parallel
+        REFRESH_STATUS['message'] = f'Fetching fundamentals ({len(ticker_list)} tickers)...'
+        log_cache.info("REFRESH: Fetching fundamentals in parallel...")
 
-            if not REFRESH_STATUS['running']:  # Allow cancellation
+        fund_results = client.fetch_fundamentals_batch(
+            tickers=ticker_list,
+            fetch_func=eod_get_fundamentals,
+            use_cache=True,
+            force_refresh=True
+        )
 
-                break
+        successful_funds = sum(1 for r in fund_results.values() if r.success)
+        REFRESH_STATUS['progress'] = len(ticker_list) // 2  # 50% progress after fundamentals
+        log_cache.info(f"REFRESH: Fundamentals complete: {successful_funds}/{len(ticker_list)} successful")
 
+        # Batch fetch prices in parallel
+        if REFRESH_STATUS['running']:
+            REFRESH_STATUS['message'] = f'Fetching prices ({len(ticker_list)} tickers)...'
+            log_cache.info("REFRESH: Fetching prices in parallel...")
 
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=380)).strftime('%Y-%m-%d')
 
-            ticker = stock['ticker']
+            price_results = client.fetch_prices_batch(
+                tickers=ticker_list,
+                start_date=start_date,
+                end_date=end_date,
+                fetch_func=eod_get_historical_prices,
+                use_cache=True
+            )
 
-            REFRESH_STATUS['current_ticker'] = ticker
-
-            REFRESH_STATUS['progress'] = i + 1
-
-
-
-            # Force refresh fundamentals (this will update cache)
-
-            fund, err = eod_get_fundamentals(ticker, use_cache=True, force_refresh=True)
-
-
-
-            # Force refresh historical prices for momentum calculation
-
-            try:
-
-                end_date = datetime.now().strftime('%Y-%m-%d')
-
-                start_date = (datetime.now() - timedelta(days=380)).strftime('%Y-%m-%d')
-
-
-
-                # Check if prices are already fresh
-
-                price_cache_file = get_cache_path('prices', f"{ticker}_{start_date}_{end_date}")
-
-                if not is_cache_valid(price_cache_file, 7):
-
-                    # Delete old cache to force refresh
-
-                    if os.path.exists(price_cache_file):
-
-                        os.remove(price_cache_file)
-
-
-
-                    prices, err = eod_get_historical_prices(ticker, start_date, end_date, use_cache=True)
-
-            except Exception as e:
-
-                log_cache.error(f"REFRESH: Error refreshing prices for {ticker}: {e}")
-
-
-
-            # Progress update every 20 tickers
-
-            if (i + 1) % 20 == 0:
-
-                log_cache.info(f"REFRESH: Progress: {i+1}/{REFRESH_STATUS['total']} tickers")
+            successful_prices = sum(1 for r in price_results.values() if r.success)
+            REFRESH_STATUS['progress'] = len(ticker_list)  # 100% progress
+            log_cache.info(f"REFRESH: Prices complete: {successful_prices}/{len(ticker_list)} successful")
 
 
 
@@ -7218,13 +7439,45 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
     pnl_sign = '+' if pnl >= 0 else ''
 
-    
+
+
+    # Get realized PnL from position manager to include in NAV
+
+    total_realized_pnl = 0.0
+
+    try:
+
+        price_data = {p.get('ticker', '').upper(): safe_float(p.get('price_eur')) or 0 for p in pos}
+
+        name_data = {p.get('ticker', '').upper(): p.get('name', '') for p in pos}
+
+        manager = get_position_manager()
+
+        pnl_summary = manager.get_all_positions(price_data, name_data)
+
+        total_realized_pnl = pnl_summary.total_realized_pnl
+
+    except Exception as e:
+
+        log.warning(f"Could not get realized PnL: {e}")
+
+
+
+    # NAV = market value of positions + cumulative realized PnL (cash from sales)
+
+    nav_total = tv + total_realized_pnl
+
+    total_pnl = pnl + total_realized_pnl  # Total P&L = unrealized + realized
+
+    total_pnl_pct = (total_pnl / tc * 100) if tc > 0 else 0
+
+
 
     # Update NAV history if requested (on refresh)
 
-    if update_history and tv > 0:
+    if update_history and nav_total > 0:
 
-        nav_history = update_nav_history(tv, tc, pnl, pnl_pct)
+        nav_history = update_nav_history(nav_total, tc, total_pnl, total_pnl_pct, total_realized_pnl)
 
     else:
 
@@ -7316,6 +7569,8 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
         pe = safe_float(p.get('pe_ttm'))
 
+        pcf = safe_float(p.get('pcf')) or safe_float(p.get('price_to_cashflow'))
+
         roe = safe_float(p.get('roe_ttm'))
 
         sig = str(p.get('signal', 'HOLD')).strip()
@@ -7362,6 +7617,8 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
         pe_str = fmt_val(pe, 1) if pe else '-'
 
+        pcf_str = fmt_val(pcf, 1) if pcf else '-'
+
         roe_str = f"{roe*100:.0f}%" if roe else '-'
 
 
@@ -7395,6 +7652,21 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
             pe_weight = '400'
 
 
+
+        # Color coding for P/CF (green if ≤8, yellow if ≤12, red otherwise)
+        if pcf:
+            if pcf <= 8:
+                pcf_color = '#00ff00'  # Excellent
+                pcf_weight = '700'
+            elif pcf <= 12:
+                pcf_color = '#ffff00'  # Correct
+                pcf_weight = '600'
+            else:
+                pcf_color = '#ff4444'  # Expensive
+                pcf_weight = '400'
+        else:
+            pcf_color = '#666'
+            pcf_weight = '400'
 
         # Color coding for ROE (green if ≥15%, yellow if ≥10%, white otherwise)
 
@@ -7448,11 +7720,13 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 <td class="col-pe r" style="color:{pe_color};font-weight:{pe_weight}">{pe_str}</td>
 
+<td class="col-pcf r" style="color:{pcf_color};font-weight:{pcf_weight}">{pcf_str}</td>
+
 <td class="col-roe r" style="color:{roe_color}">{roe_str}</td>
 
 <td class="col-signal c"><span class="sig {sc}">{sig}</span></td>
 
-<td class="col-actions c"><button class="btn-edit" onclick="editPosition('{ticker_esc}', '{name_esc}', {qty}, {cost})" title="Edit">✏️</button><button class="btn-del" onclick="deletePosition('{ticker_esc}')" title="Delete">🗑️</button></td>
+<td class="col-actions c"><button class="btn-buy" onclick="openTradeModal('{ticker_esc}', '{name_esc}', 'BUY')" title="Buy more">+</button><button class="btn-sell" onclick="openTradeModal('{ticker_esc}', '{name_esc}', 'SELL', {qty})" title="Sell">-</button><button class="btn-edit" onclick="editPosition('{ticker_esc}', '{name_esc}', {qty}, {cost})" title="Edit">✏️</button></td>
 
 </tr>'''
 
@@ -7476,7 +7750,9 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2308081a'/><line x1='9' y1='8' x2='16' y2='16' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><line x1='16' y1='16' x2='25' y2='12' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><line x1='16' y1='16' x2='11' y2='25' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><circle cx='9' cy='8' r='3' fill='%23c9a84c' opacity='.8'/><circle cx='16' cy='16' r='4' fill='%23c9a84c'/><circle cx='25' cy='12' r='2.5' fill='%23c9a84c' opacity='.7'/><circle cx='11' cy='25' r='2' fill='%23c9a84c' opacity='.45'/></svg>">
 
-<style>{BLOOMBERG_CSS}</style></head><body>
+<style>{BLOOMBERG_CSS}</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head><body>
 
 <!-- ═══ BLOOMBERG LOADING OVERLAY ═══ -->
 
@@ -7618,6 +7894,14 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 <button class="fkey" onclick="if(confirm('Run full scan?'))location.href='/?screener=1'">F6 SCAN</button>
 
+<button class="fkey" onclick="generateReport()" style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-color:#ffd700;color:#ffd700;">F7 REPORT</button>
+
+<button class="fkey" onclick="toggleInsiderPanel()" style="background:linear-gradient(135deg,#1a2e1a,#162e16);border-color:#22c55e;color:#22c55e;">F8 INSIDER</button>
+
+<button class="fkey" onclick="toggleRebalancePanel()" style="background:linear-gradient(135deg,#2e1a1a,#3e1616);border-color:#f59e0b;color:#f59e0b;">F9 REBALANCE</button>
+
+<button class="fkey" onclick="toggleHeatmapPanel()" style="background:linear-gradient(135deg,#1a1a2e,#2e1a2e);border-color:#a855f7;color:#a855f7;">F10 HEATMAP</button>
+
 </div>
 
 <div class="bb-tabs">
@@ -7646,7 +7930,168 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 <div class="bb-kpi"><span class="bb-kpi-label">UPD</span><span style="color:#888;font-size:11px">{datetime.now().strftime('%d-%b %H:%M').upper()}</span></div>
 
+<div class="bb-kpi-divider"></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">ALPHA</span><span class="bb-kpi-val" id="kpi-alpha" style="color:#888">--</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">BETA</span><span style="color:#fff;font-size:14px;font-weight:600" id="kpi-beta">--</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">SHARPE</span><span style="color:#fff;font-size:14px;font-weight:600" id="kpi-sharpe">--</span></div>
+
+<div class="bb-kpi-divider"></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">REALIZED</span><span style="color:#888;font-size:14px;font-weight:600" id="kpi-realized-pnl">--</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">WIN RATE</span><span style="color:#fff;font-size:14px;font-weight:600" id="kpi-win-rate">--</span></div>
+
 </div>
+
+<style>
+.bb-kpi-divider {{
+  width: 1px;
+  background: #333;
+  margin: 0 8px;
+}}
+</style>
+
+<!-- ALERTS PANEL -->
+<div class="bb-alerts-panel" id="alerts-panel" style="display:none;">
+<div class="bb-alerts-header">
+<span class="bb-alerts-icon" id="alerts-icon">🔔</span>
+<span class="bb-alerts-title">ALERTS</span>
+<span class="bb-alerts-count" id="alerts-count">0</span>
+<button class="bb-btn bb-btn-sm" onclick="checkAlerts()" style="margin-left:auto;font-size:10px;padding:4px 8px;">🔄 REFRESH</button>
+</div>
+<div class="bb-alerts-list" id="alerts-list">
+<!-- Alerts will be loaded via JavaScript -->
+</div>
+</div>
+
+<style>
+.bb-alerts-panel {{
+  background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+  border: 1px solid #ff9500;
+  border-radius: 4px;
+  margin: 10px 0;
+  overflow: hidden;
+}}
+.bb-alerts-header {{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 15px;
+  background: linear-gradient(90deg, rgba(255,149,0,0.2) 0%, transparent 100%);
+  border-bottom: 1px solid #333;
+}}
+.bb-alerts-icon {{
+  font-size: 18px;
+  animation: alertPulse 2s ease-in-out infinite;
+}}
+.bb-alerts-icon.active {{
+  animation: alertBlink 0.8s ease-in-out infinite;
+}}
+@keyframes alertPulse {{
+  0%, 100% {{ opacity: 0.5; }}
+  50% {{ opacity: 1; }}
+}}
+@keyframes alertBlink {{
+  0%, 100% {{ opacity: 1; transform: scale(1); }}
+  50% {{ opacity: 0.5; transform: scale(1.2); }}
+}}
+.bb-alerts-title {{
+  font-size: 14px;
+  font-weight: 700;
+  color: #ff9500;
+  letter-spacing: 2px;
+}}
+.bb-alerts-count {{
+  background: #ff9500;
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+}}
+.bb-alerts-list {{
+  max-height: 200px;
+  overflow-y: auto;
+}}
+.bb-alert-item {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 15px;
+  border-bottom: 1px solid #222;
+  transition: background 0.2s;
+}}
+.bb-alert-item:hover {{
+  background: rgba(255,149,0,0.1);
+}}
+.bb-alert-item.zone-achat {{
+  border-left: 3px solid #00ff00;
+}}
+.bb-alert-item.pe-attractif {{
+  border-left: 3px solid #ffff00;
+}}
+.bb-alert-item.roe-excellent {{
+  border-left: 3px solid #00ffff;
+}}
+.bb-alert-item.prix-cible {{
+  border-left: 3px solid #ff00ff;
+}}
+.bb-alert-item.momentum {{
+  border-left: 3px solid #ff9500;
+}}
+.bb-alert-ticker {{
+  color: #00ffff;
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 80px;
+}}
+.bb-alert-name {{
+  color: #888;
+  font-size: 11px;
+  min-width: 100px;
+}}
+.bb-alert-message {{
+  color: #fff;
+  font-size: 12px;
+  flex: 1;
+}}
+.bb-alert-actions {{
+  display: flex;
+  gap: 5px;
+}}
+.bb-alert-btn {{
+  background: #333;
+  border: 1px solid #555;
+  color: #fff;
+  font-size: 10px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s;
+}}
+.bb-alert-btn:hover {{
+  background: #ff9500;
+  color: #000;
+  border-color: #ff9500;
+}}
+.bb-alert-btn.dismiss {{
+  color: #888;
+}}
+.bb-alert-btn.dismiss:hover {{
+  background: #ff3333;
+  border-color: #ff3333;
+  color: #fff;
+}}
+.bb-no-alerts {{
+  padding: 20px;
+  text-align: center;
+  color: #666;
+  font-size: 12px;
+}}
+</style>
 
 <div class="bb-portfolio-chart">
 
@@ -7688,9 +8133,427 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 </div>
 
+<!-- BENCHMARK COMPARISON CHART -->
+<div class="bb-benchmark-panel">
+<div class="bb-benchmark-header">
+<div class="bb-benchmark-title">
+<span class="bb-benchmark-icon">📊</span>
+<span>BENCHMARK COMPARISON</span>
+</div>
+<div class="bb-benchmark-controls">
+<div class="bb-benchmark-select">
+<button class="bb-bench-btn active" onclick="setBenchmark('CACMS')" id="bench-CACMS">CAC M&S</button>
+<button class="bb-bench-btn" onclick="setBenchmark('CACS')" id="bench-CACS">CAC Small</button>
+<button class="bb-bench-btn" onclick="setBenchmark('STOXX50E')" id="bench-STOXX50E">Euro Stoxx</button>
+</div>
+<div class="bb-benchmark-period">
+<button onclick="setBenchPeriod('YTD')" id="bench-ytd">YTD</button>
+<button onclick="setBenchPeriod('1Y')" id="bench-1y" class="active">1Y</button>
+<button onclick="setBenchPeriod('3Y')" id="bench-3y">3Y</button>
+<button onclick="setBenchPeriod('MAX')" id="bench-max">MAX</button>
+</div>
+</div>
+</div>
+<div class="bb-benchmark-alpha" id="benchmark-alpha">
+<span class="bb-alpha-label">ALPHA (vs benchmark)</span>
+<span class="bb-alpha-value" id="alpha-value">--</span>
+</div>
+<div class="bb-benchmark-chart">
+<canvas id="benchmarkChart"></canvas>
+</div>
+<div class="bb-benchmark-metrics" id="benchmark-metrics">
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Portfolio</span><span class="bb-bench-metric-value" id="metric-portfolio">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Benchmark</span><span class="bb-bench-metric-value" id="metric-benchmark">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Beta</span><span class="bb-bench-metric-value" id="metric-beta">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Sharpe</span><span class="bb-bench-metric-value" id="metric-sharpe">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Max DD</span><span class="bb-bench-metric-value" id="metric-maxdd">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Tracking Err</span><span class="bb-bench-metric-value" id="metric-tracking">--</span></div>
+</div>
+</div>
+
+<style>
+.bb-benchmark-panel {{
+  background: #0a0a0a;
+  border: 1px solid #333;
+  margin: 8px;
+  padding: 16px;
+  border-radius: 4px;
+}}
+.bb-benchmark-header {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
+}}
+.bb-benchmark-title {{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ff9500;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}}
+.bb-benchmark-icon {{
+  font-size: 14px;
+}}
+.bb-benchmark-controls {{
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}}
+.bb-benchmark-select {{
+  display: flex;
+  gap: 4px;
+}}
+.bb-bench-btn {{
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #888;
+  font-size: 10px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}}
+.bb-bench-btn:hover {{
+  border-color: #ff9500;
+  color: #fff;
+}}
+.bb-bench-btn.active {{
+  background: #ff9500;
+  color: #000;
+  border-color: #ff9500;
+  font-weight: 600;
+}}
+.bb-benchmark-period {{
+  display: flex;
+  gap: 2px;
+}}
+.bb-benchmark-period button {{
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #666;
+  font-size: 10px;
+  padding: 4px 8px;
+  cursor: pointer;
+}}
+.bb-benchmark-period button:hover {{
+  color: #fff;
+}}
+.bb-benchmark-period button.active {{
+  background: #333;
+  color: #fff;
+}}
+.bb-benchmark-alpha {{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  padding: 12px;
+  background: linear-gradient(90deg, rgba(255,149,0,0.1) 0%, transparent 50%, rgba(255,149,0,0.1) 100%);
+  margin-bottom: 12px;
+  border-radius: 4px;
+}}
+.bb-alpha-label {{
+  color: #888;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}}
+.bb-alpha-value {{
+  font-size: 28px;
+  font-weight: 700;
+  color: #00ff00;
+}}
+.bb-alpha-value.negative {{
+  color: #ff3333;
+}}
+.bb-benchmark-chart {{
+  position: relative;
+  height: 200px;
+  border: 1px solid #1a1a1a;
+  background: linear-gradient(180deg, #0d0d0d 0%, #050505 100%);
+  margin-bottom: 12px;
+}}
+.bb-benchmark-chart canvas {{
+  width: 100%;
+  height: 100%;
+}}
+.bb-benchmark-metrics {{
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}}
+.bb-bench-metric {{
+  text-align: center;
+  padding: 8px;
+  background: #111;
+  border-radius: 3px;
+}}
+.bb-bench-metric-label {{
+  display: block;
+  color: #666;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}}
+.bb-bench-metric-value {{
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}}
+.bb-bench-metric-value.pos {{
+  color: #00ff00;
+}}
+.bb-bench-metric-value.neg {{
+  color: #ff3333;
+}}
+@media (max-width: 768px) {{
+  .bb-benchmark-metrics {{
+    grid-template-columns: repeat(3, 1fr);
+  }}
+}}
+</style>
+
+<!-- DIVIDENDS PANEL -->
+<div class="bb-dividends-panel">
+<div class="bb-dividends-header">
+<div class="bb-dividends-title">
+<span class="bb-dividends-icon">💰</span>
+<span>DIVIDENDS CALENDAR</span>
+</div>
+<div class="bb-dividends-controls">
+<button class="bb-div-period active" onclick="setDivPeriod(3)" id="div-3m">3M</button>
+<button class="bb-div-period" onclick="setDivPeriod(6)" id="div-6m">6M</button>
+<button class="bb-div-period" onclick="setDivPeriod(12)" id="div-12m">12M</button>
+</div>
+</div>
+<div class="bb-dividends-summary" id="dividends-summary">
+<div class="bb-div-total">
+<span class="bb-div-total-label">Projected Annual Income</span>
+<span class="bb-div-total-value" id="div-annual-income">--</span>
+</div>
+<div class="bb-div-stats">
+<div class="bb-div-stat"><span class="bb-div-stat-label">Monthly Avg</span><span class="bb-div-stat-value" id="div-monthly">--</span></div>
+<div class="bb-div-stat"><span class="bb-div-stat-label">Yield</span><span class="bb-div-stat-value" id="div-yield">--</span></div>
+<div class="bb-div-stat"><span class="bb-div-stat-label">Payers</span><span class="bb-div-stat-value" id="div-payers">--</span></div>
+</div>
+</div>
+<div class="bb-dividends-upcoming" id="dividends-upcoming">
+<div class="bb-div-section-title">Upcoming Ex-Dates (Next 90 days)</div>
+<div class="bb-div-list" id="div-upcoming-list">
+<div class="bb-div-loading">Loading dividend data...</div>
+</div>
+</div>
+<div class="bb-dividends-breakdown" id="dividends-breakdown">
+<div class="bb-div-section-title">Top Dividend Contributors</div>
+<div class="bb-div-breakdown-list" id="div-breakdown-list"></div>
+</div>
+</div>
+
+<style>
+.bb-dividends-panel {{
+  background: #0a0a0a;
+  border: 1px solid #333;
+  margin: 8px;
+  padding: 16px;
+  border-radius: 4px;
+}}
+.bb-dividends-header {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}}
+.bb-dividends-title {{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #00ff00;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}}
+.bb-dividends-icon {{
+  font-size: 14px;
+}}
+.bb-dividends-controls {{
+  display: flex;
+  gap: 4px;
+}}
+.bb-div-period {{
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #666;
+  font-size: 10px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}}
+.bb-div-period:hover {{
+  border-color: #00ff00;
+  color: #fff;
+}}
+.bb-div-period.active {{
+  background: #00ff00;
+  color: #000;
+  border-color: #00ff00;
+  font-weight: 600;
+}}
+.bb-dividends-summary {{
+  background: linear-gradient(90deg, rgba(0,255,0,0.08) 0%, transparent 50%, rgba(0,255,0,0.08) 100%);
+  padding: 16px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 30px;
+}}
+.bb-div-total {{
+  text-align: center;
+  flex-shrink: 0;
+}}
+.bb-div-total-label {{
+  display: block;
+  color: #888;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}}
+.bb-div-total-value {{
+  font-size: 32px;
+  font-weight: 700;
+  color: #00ff00;
+}}
+.bb-div-stats {{
+  display: flex;
+  gap: 20px;
+  flex-grow: 1;
+  justify-content: center;
+}}
+.bb-div-stat {{
+  text-align: center;
+  padding: 8px 15px;
+  background: #111;
+  border-radius: 3px;
+}}
+.bb-div-stat-label {{
+  display: block;
+  color: #666;
+  font-size: 9px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}}
+.bb-div-stat-value {{
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}}
+.bb-dividends-upcoming, .bb-dividends-breakdown {{
+  margin-bottom: 12px;
+}}
+.bb-div-section-title {{
+  color: #888;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #222;
+}}
+.bb-div-list {{
+  max-height: 180px;
+  overflow-y: auto;
+}}
+.bb-div-item {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: #111;
+  margin-bottom: 4px;
+  border-radius: 3px;
+  border-left: 3px solid #333;
+}}
+.bb-div-item.upcoming {{
+  border-left-color: #ff9500;
+}}
+.bb-div-item-info {{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}}
+.bb-div-item-ticker {{
+  color: #ff9500;
+  font-size: 12px;
+  font-weight: 600;
+}}
+.bb-div-item-name {{
+  color: #666;
+  font-size: 10px;
+}}
+.bb-div-item-details {{
+  text-align: right;
+}}
+.bb-div-item-date {{
+  color: #888;
+  font-size: 10px;
+}}
+.bb-div-item-amount {{
+  color: #00ff00;
+  font-size: 13px;
+  font-weight: 600;
+}}
+.bb-div-breakdown-list {{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}}
+.bb-div-breakdown-item {{
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #111;
+  border-radius: 3px;
+}}
+.bb-div-breakdown-ticker {{
+  color: #ff9500;
+  font-size: 11px;
+  font-weight: 600;
+}}
+.bb-div-breakdown-income {{
+  color: #00ff00;
+  font-size: 12px;
+  font-weight: 600;
+}}
+.bb-div-breakdown-yield {{
+  color: #666;
+  font-size: 10px;
+}}
+.bb-div-loading {{
+  color: #666;
+  font-size: 11px;
+  text-align: center;
+  padding: 20px;
+}}
+.bb-div-empty {{
+  color: #555;
+  font-size: 11px;
+  text-align: center;
+  padding: 15px;
+  font-style: italic;
+}}
+</style>
+
 <div class="bb-panel">
 
-<div class="bb-panel-hdr"><span class="bb-panel-title">Holdings</span><span class="bb-panel-sub">Click column header to sort</span><button class="bb-btn bb-btn-g" onclick="openAddModal()" style="margin-left:auto;padding:4px 12px;font-size:11px;">+ ADD POSITION</button></div>
+<div class="bb-panel-hdr"><span class="bb-panel-title">Holdings</span><span class="bb-panel-sub">Click column header to sort</span><div style="margin-left:auto;display:flex;gap:8px;"><button class="bb-btn bb-btn-trade" onclick="openTradeModal()" style="padding:4px 12px;font-size:11px;background:#ff9500;border-color:#ff9500;color:#000;font-weight:600;">⚡ TRADE</button><button class="bb-btn bb-btn-g" onclick="openAddModal()" style="padding:4px 12px;font-size:11px;">+ ADD</button></div></div>
 
 <div class="bb-tbl"><table id="holdings-table">
 
@@ -7712,9 +8575,11 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 <th class="col-pe sortable" style="text-align:right" data-col="7" data-type="number">P/E</th>
 
-<th class="col-roe sortable" style="text-align:right" data-col="8" data-type="number">ROE</th>
+<th class="col-pcf sortable" style="text-align:right" data-col="8" data-type="number">P/CF</th>
 
-<th class="col-signal sortable" style="text-align:center" data-col="9" data-type="string">Signal</th>
+<th class="col-roe sortable" style="text-align:right" data-col="9" data-type="number">ROE</th>
+
+<th class="col-signal sortable" style="text-align:center" data-col="10" data-type="string">Signal</th>
 
 <th class="col-actions" style="text-align:center;width:80px">Actions</th>
 
@@ -7724,7 +8589,208 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 </table></div>
 
-</div></div>
+</div>
+
+<!-- Closed Positions Section (Collapsible) -->
+<div class="bb-closed-positions" id="closed-positions-section">
+<div class="bb-closed-header" onclick="toggleClosedPositions()">
+<span class="bb-closed-icon">📊</span>
+<span class="bb-closed-title">CLOSED POSITIONS</span>
+<span class="bb-closed-count" id="closed-count">0</span>
+<span class="bb-closed-pnl" id="closed-total-pnl">€0</span>
+<span class="bb-closed-toggle" id="closed-toggle">▼</span>
+</div>
+<div class="bb-closed-content" id="closed-content" style="display:none;">
+<div class="bb-tbl"><table id="closed-table">
+<thead><tr>
+<th>Ticker</th>
+<th>Name</th>
+<th style="text-align:right">Total Invested</th>
+<th style="text-align:right">Total Sold</th>
+<th style="text-align:right">Realized P&L</th>
+<th style="text-align:right">P&L %</th>
+<th style="text-align:right">Holding Days</th>
+<th>Date Closed</th>
+</tr></thead>
+<tbody id="closed-body">
+<tr><td colspan="8" style="text-align:center;padding:20px;color:#666;">Loading closed positions...</td></tr>
+</tbody>
+</table></div>
+</div>
+</div>
+
+<style>
+.bb-closed-positions {{
+  margin: 8px;
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 4px;
+}}
+.bb-closed-header {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  cursor: pointer;
+  background: linear-gradient(90deg, rgba(102,102,102,0.1) 0%, transparent 100%);
+}}
+.bb-closed-header:hover {{
+  background: linear-gradient(90deg, rgba(102,102,102,0.2) 0%, transparent 100%);
+}}
+.bb-closed-icon {{
+  font-size: 14px;
+}}
+.bb-closed-title {{
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}}
+.bb-closed-count {{
+  background: #333;
+  color: #888;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+}}
+.bb-closed-pnl {{
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 600;
+}}
+.bb-closed-pnl.positive {{
+  color: #00ff00;
+}}
+.bb-closed-pnl.negative {{
+  color: #ff3333;
+}}
+.bb-closed-toggle {{
+  color: #666;
+  transition: transform 0.2s;
+}}
+.bb-closed-toggle.open {{
+  transform: rotate(180deg);
+}}
+.bb-closed-content {{
+  border-top: 1px solid #222;
+}}
+#closed-table th {{
+  color: #888;
+  font-size: 10px;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  background: #111;
+}}
+#closed-table td {{
+  padding: 8px 10px;
+  font-size: 11px;
+}}
+</style>
+
+<script>
+function toggleClosedPositions() {{
+    const content = document.getElementById('closed-content');
+    const toggle = document.getElementById('closed-toggle');
+    if (content.style.display === 'none') {{
+        content.style.display = 'block';
+        toggle.classList.add('open');
+        loadClosedPositions();
+    }} else {{
+        content.style.display = 'none';
+        toggle.classList.remove('open');
+    }}
+}}
+
+function loadClosedPositions() {{
+    fetch('/?action=get_closed_positions')
+        .then(r => r.json())
+        .then(data => {{
+            if (!data.success) {{
+                console.error('Error loading closed positions:', data.error);
+                return;
+            }}
+            const positions = data.data || [];
+            const tbody = document.getElementById('closed-body');
+            const countEl = document.getElementById('closed-count');
+            const pnlEl = document.getElementById('closed-total-pnl');
+
+            countEl.textContent = positions.length;
+
+            if (positions.length === 0) {{
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#666;">No closed positions yet</td></tr>';
+                pnlEl.textContent = '€0';
+                return;
+            }}
+
+            let totalPnl = 0;
+            tbody.innerHTML = positions.map(p => {{
+                totalPnl += p.realized_pnl || 0;
+                const pnlClass = p.realized_pnl >= 0 ? 'pos' : 'neg';
+                const pnlSign = p.realized_pnl >= 0 ? '+' : '';
+                const pnlPct = p.total_invested > 0 ? (p.realized_pnl / p.total_invested * 100).toFixed(1) : 0;
+                return `<tr>
+                    <td><a class="tk" href="/?detail=${{p.ticker}}">${{p.ticker}}</a></td>
+                    <td class="nm">${{p.name || ''}}</td>
+                    <td style="text-align:right">€${{p.total_invested.toLocaleString('fr-FR', {{minimumFractionDigits: 0}})}}</td>
+                    <td style="text-align:right">€${{(p.total_invested + p.realized_pnl).toLocaleString('fr-FR', {{minimumFractionDigits: 0}})}}</td>
+                    <td style="text-align:right" class="${{pnlClass}}">${{pnlSign}}€${{Math.abs(p.realized_pnl).toFixed(2)}}</td>
+                    <td style="text-align:right" class="${{pnlClass}}">${{pnlSign}}${{pnlPct}}%</td>
+                    <td style="text-align:right">${{p.holding_days}}d</td>
+                    <td>${{p.close_date || '-'}}</td>
+                </tr>`;
+            }}).join('');
+
+            const totalSign = totalPnl >= 0 ? '+' : '';
+            pnlEl.textContent = totalSign + '€' + Math.abs(totalPnl).toLocaleString('fr-FR', {{minimumFractionDigits: 2}});
+            pnlEl.className = 'bb-closed-pnl ' + (totalPnl >= 0 ? 'positive' : 'negative');
+        }})
+        .catch(err => {{
+            console.error('Error loading closed positions:', err);
+        }});
+}}
+
+// Load P&L summary for KPIs
+function loadPnLSummary() {{
+    fetch('/?action=get_pnl_summary')
+        .then(r => r.json())
+        .then(data => {{
+            if (!data.success) return;
+            const summary = data.data;
+
+            // Update KPIs if elements exist
+            const realizedEl = document.getElementById('kpi-realized-pnl');
+            const unrealizedEl = document.getElementById('kpi-unrealized-pnl');
+            const winRateEl = document.getElementById('kpi-win-rate');
+
+            if (realizedEl) {{
+                const sign = summary.total_realized_pnl >= 0 ? '+' : '';
+                realizedEl.textContent = sign + '€' + Math.abs(summary.total_realized_pnl).toFixed(0);
+                realizedEl.style.color = summary.total_realized_pnl >= 0 ? '#00ff00' : '#ff3333';
+            }}
+            if (unrealizedEl) {{
+                const sign = summary.total_unrealized_pnl >= 0 ? '+' : '';
+                unrealizedEl.textContent = sign + '€' + Math.abs(summary.total_unrealized_pnl).toFixed(0);
+                unrealizedEl.style.color = summary.total_unrealized_pnl >= 0 ? '#00ff00' : '#ff3333';
+            }}
+            if (winRateEl) {{
+                winRateEl.textContent = summary.win_rate.toFixed(0) + '%';
+            }}
+
+            // Update closed positions count
+            const closedCount = document.getElementById('closed-count');
+            if (closedCount) {{
+                closedCount.textContent = summary.closed_positions?.length || 0;
+            }}
+        }})
+        .catch(err => console.error('Error loading P&L summary:', err));
+}}
+
+// Load P&L summary on page load
+setTimeout(loadPnLSummary, 500);
+</script>
+
+</div>
 
 <div id="t1" class="tc">
 
@@ -8884,7 +9950,445 @@ function clearCache() {{
 
 setTimeout(loadCacheStats, 500);
 
+// ============== ALERTS FUNCTIONS ==============
 
+function loadAlerts() {{
+    fetch('/?action=get_alerts')
+        .then(r => r.json())
+        .then(data => {{
+            displayAlerts(data.alerts || []);
+        }})
+        .catch(err => {{
+            console.error('Error loading alerts:', err);
+        }});
+}}
+
+function checkAlerts() {{
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ Checking...';
+
+    fetch('/?action=check_alerts')
+        .then(r => r.json())
+        .then(data => {{
+            displayAlerts(data.alerts || []);
+            btn.disabled = false;
+            btn.textContent = '🔄 REFRESH';
+        }})
+        .catch(err => {{
+            console.error('Error checking alerts:', err);
+            btn.disabled = false;
+            btn.textContent = '🔄 REFRESH';
+        }});
+}}
+
+function displayAlerts(alerts) {{
+    const panel = document.getElementById('alerts-panel');
+    const list = document.getElementById('alerts-list');
+    const count = document.getElementById('alerts-count');
+    const icon = document.getElementById('alerts-icon');
+
+    if (!alerts || alerts.length === 0) {{
+        panel.style.display = 'none';
+        return;
+    }}
+
+    panel.style.display = 'block';
+    count.textContent = alerts.length;
+    icon.classList.add('active');
+
+    list.innerHTML = alerts.map(a => {{
+        const typeClass = a.alert_type.toLowerCase().replace('_', '-');
+        const alertId = `alert-${{a.ticker}}-${{a.alert_type}}`;
+        return `
+            <div class="bb-alert-item ${{typeClass}}" id="${{alertId}}">
+                <span class="bb-alert-ticker">${{a.ticker}}</span>
+                <span class="bb-alert-name">${{a.name}}</span>
+                <span class="bb-alert-message">${{a.message}}</span>
+                <div class="bb-alert-actions">
+                    <button class="bb-alert-btn" onclick="window.location.href='/?detail=${{a.ticker}}'">DETAIL</button>
+                    <button class="bb-alert-btn dismiss" onclick="dismissAlert('${{a.ticker}}', '${{a.alert_type}}', this)">✕</button>
+                </div>
+            </div>
+        `;
+    }}).join('');
+}}
+
+function dismissAlert(ticker, alertType, btn) {{
+    // Immediately hide the alert for instant feedback
+    const alertEl = document.getElementById(`alert-${{ticker}}-${{alertType}}`);
+    if (alertEl) {{
+        alertEl.style.opacity = '0.3';
+        alertEl.style.pointerEvents = 'none';
+    }}
+    if (btn) btn.textContent = '...';
+
+    fetch(`/?action=dismiss_alert&ticker=${{ticker}}&alert_type=${{alertType}}`)
+        .then(r => r.json())
+        .then(data => {{
+            if (data.success) {{
+                // Remove element from DOM
+                if (alertEl) alertEl.remove();
+                // Update alert count
+                const remaining = document.querySelectorAll('.bb-alert-item').length;
+                const count = document.getElementById('alerts-count');
+                if (count) count.textContent = remaining;
+                if (remaining === 0) {{
+                    document.getElementById('alerts-panel').style.display = 'none';
+                    document.getElementById('alerts-icon').classList.remove('active');
+                }}
+            }} else {{
+                // Restore if failed
+                if (alertEl) {{
+                    alertEl.style.opacity = '1';
+                    alertEl.style.pointerEvents = 'auto';
+                }}
+                if (btn) btn.textContent = '✕';
+            }}
+        }})
+        .catch(err => {{
+            console.error('Error dismissing alert:', err);
+            // Restore on error
+            if (alertEl) {{
+                alertEl.style.opacity = '1';
+                alertEl.style.pointerEvents = 'auto';
+            }}
+            if (btn) btn.textContent = '✕';
+        }});
+}}
+
+// Load alerts on page load (delayed to not block initial render)
+setTimeout(loadAlerts, 1000);
+
+// ============== BENCHMARK COMPARISON ==============
+
+let currentBenchmark = 'CACMS';
+let currentBenchPeriod = '1Y';
+let benchmarkChart = null;
+
+function setBenchmark(benchmark) {{
+    currentBenchmark = benchmark;
+    document.querySelectorAll('.bb-bench-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('bench-' + benchmark).classList.add('active');
+    loadBenchmarkData();
+}}
+
+function setBenchPeriod(period) {{
+    currentBenchPeriod = period;
+    document.querySelectorAll('.bb-benchmark-period button').forEach(b => b.classList.remove('active'));
+    document.getElementById('bench-' + period.toLowerCase()).classList.add('active');
+    loadBenchmarkData();
+}}
+
+function loadBenchmarkData() {{
+    fetch(`/?action=benchmark_compare&benchmark=${{currentBenchmark}}&period=${{currentBenchPeriod}}`)
+        .then(r => r.json())
+        .then(data => {{
+            if (data.error) {{
+                console.error('Benchmark error:', data.error);
+                return;
+            }}
+            displayBenchmarkChart(data);
+            displayBenchmarkMetrics(data.metrics);
+        }})
+        .catch(err => console.error('Error loading benchmark:', err));
+}}
+
+function displayBenchmarkChart(data) {{
+    const ctx = document.getElementById('benchmarkChart');
+    if (!ctx) return;
+
+    const portfolio = data.portfolio || [];
+    const benchmark = data.benchmark || [];
+
+    if (portfolio.length === 0 && benchmark.length === 0) {{
+        return;
+    }}
+
+    // Align data by date
+    const portfolioMap = {{}};
+    const benchmarkMap = {{}};
+    portfolio.forEach(p => portfolioMap[p.date] = p.close);
+    benchmark.forEach(b => benchmarkMap[b.date] = b.close);
+
+    const allDates = [...new Set([...Object.keys(portfolioMap), ...Object.keys(benchmarkMap)])].sort();
+
+    const labels = allDates;
+    const portfolioData = allDates.map(d => portfolioMap[d] || null);
+    const benchmarkData = allDates.map(d => benchmarkMap[d] || null);
+
+    if (benchmarkChart) {{
+        benchmarkChart.destroy();
+    }}
+
+    benchmarkChart = new Chart(ctx.getContext('2d'), {{
+        type: 'line',
+        data: {{
+            labels: labels,
+            datasets: [
+                {{
+                    label: 'Portfolio',
+                    data: portfolioData,
+                    borderColor: '#ff9500',
+                    backgroundColor: 'rgba(255,149,0,0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0.1
+                }},
+                {{
+                    label: data.benchmark_info?.name || 'Benchmark',
+                    data: benchmarkData,
+                    borderColor: '#666',
+                    backgroundColor: 'rgba(102,102,102,0.1)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0.1,
+                    borderDash: [5, 5]
+                }}
+            ]
+        }},
+        options: {{
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {{
+                intersect: false,
+                mode: 'index'
+            }},
+            plugins: {{
+                legend: {{
+                    display: true,
+                    position: 'top',
+                    labels: {{
+                        color: '#888',
+                        font: {{ size: 10 }},
+                        boxWidth: 15
+                    }}
+                }},
+                tooltip: {{
+                    backgroundColor: '#1a1a1a',
+                    borderColor: '#333',
+                    borderWidth: 1,
+                    titleColor: '#ff9500',
+                    bodyColor: '#fff',
+                    callbacks: {{
+                        label: function(ctx) {{
+                            return ctx.dataset.label + ': ' + (ctx.raw ? ctx.raw.toFixed(1) : '--');
+                        }}
+                    }}
+                }}
+            }},
+            scales: {{
+                x: {{
+                    display: true,
+                    grid: {{ color: '#1a1a1a' }},
+                    ticks: {{
+                        color: '#666',
+                        font: {{ size: 9 }},
+                        maxTicksLimit: 8,
+                        callback: function(val, i) {{
+                            const label = this.getLabelForValue(val);
+                            return label ? label.slice(5) : ''; // Show MM-DD
+                        }}
+                    }}
+                }},
+                y: {{
+                    display: true,
+                    grid: {{ color: '#1a1a1a' }},
+                    ticks: {{
+                        color: '#666',
+                        font: {{ size: 9 }},
+                        callback: v => v.toFixed(0)
+                    }},
+                    suggestedMin: 80,
+                    suggestedMax: 120
+                }}
+            }}
+        }}
+    }});
+}}
+
+function displayBenchmarkMetrics(metrics) {{
+    if (!metrics) return;
+
+    // Alpha
+    const alphaEl = document.getElementById('alpha-value');
+    const alpha = metrics.alpha || 0;
+    alphaEl.textContent = (alpha >= 0 ? '+' : '') + alpha.toFixed(1) + '%';
+    alphaEl.className = 'bb-alpha-value ' + (alpha >= 0 ? '' : 'negative');
+
+    // Portfolio return
+    const portfolioEl = document.getElementById('metric-portfolio');
+    const pRet = metrics.portfolio_return || 0;
+    portfolioEl.textContent = (pRet >= 0 ? '+' : '') + pRet.toFixed(1) + '%';
+    portfolioEl.className = 'bb-bench-metric-value ' + (pRet >= 0 ? 'pos' : 'neg');
+
+    // Benchmark return
+    const benchEl = document.getElementById('metric-benchmark');
+    const bRet = metrics.benchmark_return || 0;
+    benchEl.textContent = (bRet >= 0 ? '+' : '') + bRet.toFixed(1) + '%';
+    benchEl.className = 'bb-bench-metric-value ' + (bRet >= 0 ? 'pos' : 'neg');
+
+    // Beta
+    document.getElementById('metric-beta').textContent = (metrics.beta || 0).toFixed(2);
+
+    // Sharpe
+    const sharpe = metrics.sharpe_ratio || 0;
+    const sharpeEl = document.getElementById('metric-sharpe');
+    sharpeEl.textContent = sharpe.toFixed(2);
+    sharpeEl.className = 'bb-bench-metric-value ' + (sharpe >= 1 ? 'pos' : sharpe < 0 ? 'neg' : '');
+
+    // Max Drawdown
+    const maxDD = metrics.portfolio_max_dd || 0;
+    const maxDDEl = document.getElementById('metric-maxdd');
+    maxDDEl.textContent = '-' + Math.abs(maxDD).toFixed(1) + '%';
+    maxDDEl.className = 'bb-bench-metric-value neg';
+
+    // Tracking Error
+    document.getElementById('metric-tracking').textContent = (metrics.tracking_error || 0).toFixed(1) + '%';
+
+    // Update top KPIs bar
+    const kpiAlpha = document.getElementById('kpi-alpha');
+    if (kpiAlpha) {{
+        kpiAlpha.textContent = (alpha >= 0 ? '+' : '') + alpha.toFixed(1) + '%';
+        kpiAlpha.style.color = alpha >= 0 ? '#00ff00' : '#ff3333';
+    }}
+
+    const kpiBeta = document.getElementById('kpi-beta');
+    if (kpiBeta) {{
+        kpiBeta.textContent = (metrics.beta || 0).toFixed(2);
+    }}
+
+    const kpiSharpe = document.getElementById('kpi-sharpe');
+    if (kpiSharpe) {{
+        kpiSharpe.textContent = sharpe.toFixed(2);
+        kpiSharpe.style.color = sharpe >= 1 ? '#00ff00' : sharpe < 0 ? '#ff3333' : '#fff';
+    }}
+}}
+
+// Load benchmark data on page load
+setTimeout(loadBenchmarkData, 1500);
+
+// ============== DIVIDENDS CALENDAR ==============
+
+let currentDivPeriod = 3;
+
+function setDivPeriod(months) {{
+    currentDivPeriod = months;
+    document.querySelectorAll('.bb-div-period').forEach(b => b.classList.remove('active'));
+    document.getElementById('div-' + months + 'm').classList.add('active');
+    loadDividendData();
+}}
+
+function loadDividendData() {{
+    // Load income projection
+    fetch('/?action=dividends_income')
+        .then(r => r.json())
+        .then(data => {{
+            if (data.error) {{
+                console.error('Dividend income error:', data.error);
+                return;
+            }}
+            displayDividendSummary(data);
+            displayDividendBreakdown(data.breakdown || []);
+        }})
+        .catch(err => console.error('Error loading dividend income:', err));
+
+    // Load calendar
+    fetch(`/?action=dividends_calendar&months=${{currentDivPeriod}}`)
+        .then(r => r.json())
+        .then(data => {{
+            if (data.error) {{
+                console.error('Dividend calendar error:', data.error);
+                return;
+            }}
+            displayUpcomingDividends(data.upcoming || []);
+        }})
+        .catch(err => console.error('Error loading dividend calendar:', err));
+}}
+
+function displayDividendSummary(data) {{
+    const annualEl = document.getElementById('div-annual-income');
+    const monthlyEl = document.getElementById('div-monthly');
+    const yieldEl = document.getElementById('div-yield');
+    const payersEl = document.getElementById('div-payers');
+
+    if (annualEl) {{
+        annualEl.textContent = '€' + (data.total_annual_income || 0).toLocaleString('fr-FR', {{minimumFractionDigits: 0}});
+    }}
+    if (monthlyEl) {{
+        monthlyEl.textContent = '€' + (data.monthly_average || 0).toLocaleString('fr-FR', {{minimumFractionDigits: 0}});
+    }}
+    if (payersEl) {{
+        payersEl.textContent = (data.positions_with_dividends || 0) + '/' + (data.total_positions || 0);
+    }}
+
+    // Calculate portfolio yield (needs total portfolio value)
+    // For now just show number of payers
+}}
+
+function displayUpcomingDividends(upcoming) {{
+    const listEl = document.getElementById('div-upcoming-list');
+    if (!listEl) return;
+
+    if (!upcoming || upcoming.length === 0) {{
+        listEl.innerHTML = '<div class="bb-div-empty">No upcoming dividends in the next ' + currentDivPeriod + ' months</div>';
+        return;
+    }}
+
+    listEl.innerHTML = upcoming.map(div => `
+        <div class="bb-div-item upcoming">
+            <div class="bb-div-item-info">
+                <span class="bb-div-item-ticker">${{div.ticker}}</span>
+                <span class="bb-div-item-name">${{div.name || ''}}</span>
+            </div>
+            <div class="bb-div-item-details">
+                <span class="bb-div-item-date">${{formatDivDate(div.ex_date)}}</span>
+                <span class="bb-div-item-amount">€${{div.expected_income.toFixed(2)}}</span>
+            </div>
+        </div>
+    `).join('');
+}}
+
+function displayDividendBreakdown(breakdown) {{
+    const listEl = document.getElementById('div-breakdown-list');
+    if (!listEl) return;
+
+    if (!breakdown || breakdown.length === 0) {{
+        listEl.innerHTML = '<div class="bb-div-empty">No dividend data available</div>';
+        return;
+    }}
+
+    // Show top 6 contributors
+    const top = breakdown.slice(0, 6);
+    listEl.innerHTML = top.map(item => `
+        <div class="bb-div-breakdown-item">
+            <div>
+                <span class="bb-div-breakdown-ticker">${{item.ticker}}</span>
+                <span class="bb-div-breakdown-yield">${{item.dividend_yield.toFixed(1)}}%</span>
+            </div>
+            <span class="bb-div-breakdown-income">€${{item.annual_income.toFixed(0)}}/yr</span>
+        </div>
+    `).join('');
+}}
+
+function formatDivDate(dateStr) {{
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffDays = Math.floor((d - now) / (1000 * 60 * 60 * 24));
+
+    const formatted = d.toLocaleDateString('fr-FR', {{ day: '2-digit', month: 'short' }});
+
+    if (diffDays <= 7) {{
+        return formatted + ' (' + diffDays + 'j)';
+    }}
+    return formatted;
+}}
+
+// Load dividend data on page load
+setTimeout(loadDividendData, 2000);
 
 function setScope(scope) {{
 
@@ -10476,6 +11980,1094 @@ function deletePosition(ticker) {{
 </div>
 </div>
 
+<!-- Trade Modal -->
+<div id="trade-modal" class="pf-modal-overlay" onclick="if(event.target===this)closeTradeModal()">
+<div class="pf-modal trade-modal">
+<h3 id="trade-modal-title">NEW TRADE</h3>
+<div class="trade-type-toggle">
+<button class="trade-type-btn buy active" id="trade-type-buy" onclick="setTradeType('BUY')">BUY</button>
+<button class="trade-type-btn sell" id="trade-type-sell" onclick="setTradeType('SELL')">SELL</button>
+</div>
+<div class="pf-modal-row"><label>Ticker</label><input type="text" id="trade-ticker" placeholder="e.g. MC.PA" style="text-transform:uppercase;"></div>
+<div class="pf-modal-row"><label>Quantity</label><input type="number" id="trade-qty" placeholder="Number of shares" step="0.01"><span class="trade-max-qty" id="trade-max-qty" style="display:none;" onclick="fillMaxQty()">MAX: <span id="max-qty-val">0</span></span></div>
+<div class="pf-modal-row"><label>Price (EUR)</label><input type="number" id="trade-price" placeholder="Price per share" step="0.01"></div>
+<div class="pf-modal-row"><label>Date</label><input type="date" id="trade-date"></div>
+<div class="pf-modal-row"><label>Fees (EUR)</label><input type="number" id="trade-fees" placeholder="0.00" step="0.01" value="0"></div>
+<div class="pf-modal-row"><label>Notes</label><input type="text" id="trade-notes" placeholder="Optional notes"></div>
+<div class="trade-summary" id="trade-summary" style="display:none;">
+<span id="trade-summary-text"></span>
+</div>
+<div class="pf-modal-btns">
+<button class="btn-cancel" onclick="closeTradeModal()">Cancel</button>
+<button class="btn-save trade-confirm" id="trade-confirm-btn" onclick="confirmTrade()">CONFIRM TRADE</button>
+</div>
+</div>
+</div>
+
+<style>
+.btn-buy, .btn-sell {{
+  border: none;
+  padding: 2px 8px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 2px;
+  margin: 0 1px;
+}}
+.btn-buy {{
+  background: #003300;
+  color: #00ff00;
+}}
+.btn-buy:hover {{
+  background: #004400;
+}}
+.btn-sell {{
+  background: #330000;
+  color: #ff3333;
+}}
+.btn-sell:hover {{
+  background: #440000;
+}}
+.trade-modal {{
+  max-width: 420px;
+}}
+.trade-type-toggle {{
+  display: flex;
+  gap: 0;
+  margin-bottom: 15px;
+}}
+.trade-type-btn {{
+  flex: 1;
+  padding: 12px;
+  border: 2px solid #333;
+  background: #1a1a1a;
+  color: #666;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}}
+.trade-type-btn.buy {{
+  border-radius: 4px 0 0 4px;
+}}
+.trade-type-btn.sell {{
+  border-radius: 0 4px 4px 0;
+}}
+.trade-type-btn.buy.active {{
+  background: #003300;
+  border-color: #00ff00;
+  color: #00ff00;
+}}
+.trade-type-btn.sell.active {{
+  background: #330000;
+  border-color: #ff3333;
+  color: #ff3333;
+}}
+.trade-max-qty {{
+  font-size: 10px;
+  color: #ff9500;
+  cursor: pointer;
+  margin-left: 10px;
+  padding: 2px 6px;
+  background: #1a1a1a;
+  border-radius: 3px;
+}}
+.trade-max-qty:hover {{
+  background: #ff9500;
+  color: #000;
+}}
+.trade-summary {{
+  background: #1a1a1a;
+  padding: 12px;
+  border-radius: 4px;
+  margin: 15px 0;
+  font-size: 13px;
+}}
+.trade-summary.buy {{
+  border-left: 3px solid #00ff00;
+}}
+.trade-summary.sell {{
+  border-left: 3px solid #ff3333;
+}}
+.trade-confirm {{
+  background: #ff9500 !important;
+  color: #000 !important;
+  font-weight: 700;
+}}
+.trade-confirm:hover {{
+  background: #ffaa33 !important;
+}}
+.trade-confirm.sell-mode {{
+  background: #ff3333 !important;
+  color: #fff !important;
+}}
+</style>
+
+<script>
+// Trade Modal Functions
+let currentTradeType = 'BUY';
+let currentMaxQty = 0;
+
+function openTradeModal(ticker='', name='', type='BUY', maxQty=0) {{
+    currentTradeType = type;
+    currentMaxQty = maxQty || 0;
+
+    document.getElementById('trade-ticker').value = ticker;
+    document.getElementById('trade-qty').value = '';
+    document.getElementById('trade-price').value = '';
+    document.getElementById('trade-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('trade-fees').value = '0';
+    document.getElementById('trade-notes').value = '';
+    document.getElementById('trade-summary').style.display = 'none';
+
+    setTradeType(type);
+
+    // If selling, fetch current qty
+    if (type === 'SELL' && ticker) {{
+        fetchTickerQty(ticker);
+    }}
+
+    document.getElementById('trade-modal').style.display = 'flex';
+    if (!ticker) {{
+        document.getElementById('trade-ticker').focus();
+    }} else {{
+        document.getElementById('trade-qty').focus();
+    }}
+}}
+
+function closeTradeModal() {{
+    document.getElementById('trade-modal').style.display = 'none';
+}}
+
+function setTradeType(type) {{
+    currentTradeType = type;
+    const buyBtn = document.getElementById('trade-type-buy');
+    const sellBtn = document.getElementById('trade-type-sell');
+    const confirmBtn = document.getElementById('trade-confirm-btn');
+    const maxQtyEl = document.getElementById('trade-max-qty');
+    const summary = document.getElementById('trade-summary');
+
+    if (type === 'BUY') {{
+        buyBtn.classList.add('active');
+        sellBtn.classList.remove('active');
+        confirmBtn.classList.remove('sell-mode');
+        confirmBtn.textContent = 'CONFIRM BUY';
+        maxQtyEl.style.display = 'none';
+        summary.classList.remove('sell');
+        summary.classList.add('buy');
+    }} else {{
+        buyBtn.classList.remove('active');
+        sellBtn.classList.add('active');
+        confirmBtn.classList.add('sell-mode');
+        confirmBtn.textContent = 'CONFIRM SELL';
+        if (currentMaxQty > 0) {{
+            document.getElementById('max-qty-val').textContent = currentMaxQty.toFixed(2);
+            maxQtyEl.style.display = 'inline';
+        }}
+        summary.classList.remove('buy');
+        summary.classList.add('sell');
+    }}
+    updateTradeSummary();
+}}
+
+function fetchTickerQty(ticker) {{
+    fetch(`/?action=get_ticker_qty&ticker=${{ticker}}`)
+        .then(r => r.json())
+        .then(data => {{
+            if (data.success && data.data) {{
+                currentMaxQty = data.data.quantity || 0;
+                document.getElementById('max-qty-val').textContent = currentMaxQty.toFixed(2);
+                if (currentTradeType === 'SELL' && currentMaxQty > 0) {{
+                    document.getElementById('trade-max-qty').style.display = 'inline';
+                }}
+            }}
+        }})
+        .catch(err => console.error('Error fetching qty:', err));
+}}
+
+function fillMaxQty() {{
+    document.getElementById('trade-qty').value = currentMaxQty;
+    updateTradeSummary();
+}}
+
+function updateTradeSummary() {{
+    const qty = parseFloat(document.getElementById('trade-qty').value) || 0;
+    const price = parseFloat(document.getElementById('trade-price').value) || 0;
+    const fees = parseFloat(document.getElementById('trade-fees').value) || 0;
+    const summary = document.getElementById('trade-summary');
+
+    if (qty > 0 && price > 0) {{
+        const total = qty * price;
+        const netTotal = currentTradeType === 'BUY' ? total + fees : total - fees;
+        const action = currentTradeType === 'BUY' ? 'Cost' : 'Proceeds';
+        summary.innerHTML = `<span style="color:#888">${{currentTradeType}}</span> <span style="color:#fff">${{qty}}</span> shares @ <span style="color:#fff">€${{price.toFixed(2)}}</span> = <span style="color:${{currentTradeType === 'BUY' ? '#00ff00' : '#ff3333'}}">€${{netTotal.toFixed(2)}}</span> <span style="color:#666">(${{action}})</span>`;
+        summary.style.display = 'block';
+    }} else {{
+        summary.style.display = 'none';
+    }}
+}}
+
+// Update summary on input change
+document.getElementById('trade-qty')?.addEventListener('input', updateTradeSummary);
+document.getElementById('trade-price')?.addEventListener('input', updateTradeSummary);
+document.getElementById('trade-fees')?.addEventListener('input', updateTradeSummary);
+
+// Fetch qty when ticker changes (for sell)
+document.getElementById('trade-ticker')?.addEventListener('change', function() {{
+    if (currentTradeType === 'SELL' && this.value) {{
+        fetchTickerQty(this.value);
+    }}
+}});
+
+function confirmTrade() {{
+    const ticker = document.getElementById('trade-ticker').value.trim().toUpperCase();
+    const qty = parseFloat(document.getElementById('trade-qty').value) || 0;
+    const price = parseFloat(document.getElementById('trade-price').value) || 0;
+    const date = document.getElementById('trade-date').value;
+    const fees = parseFloat(document.getElementById('trade-fees').value) || 0;
+    const notes = document.getElementById('trade-notes').value;
+
+    if (!ticker) {{ alert('Ticker is required'); return; }}
+    if (qty <= 0) {{ alert('Quantity must be > 0'); return; }}
+    if (price <= 0) {{ alert('Price must be > 0'); return; }}
+
+    // Validate sell quantity
+    if (currentTradeType === 'SELL' && qty > currentMaxQty) {{
+        alert(`Cannot sell ${{qty}} shares. You only have ${{currentMaxQty.toFixed(2)}} shares.`);
+        return;
+    }}
+
+    const confirmBtn = document.getElementById('trade-confirm-btn');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Processing...';
+
+    const url = `/?action=add_transaction&ticker=${{ticker}}&type=${{currentTradeType}}&date=${{date}}&quantity=${{qty}}&price=${{price}}&fees=${{fees}}&notes=${{encodeURIComponent(notes)}}`;
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {{
+            if (data.success) {{
+                closeTradeModal();
+                alert(`${{currentTradeType}} order executed: ${{qty}} ${{ticker}} @ €${{price.toFixed(2)}}`);
+                location.reload();
+            }} else {{
+                alert('Error: ' + (data.error || 'Unknown error'));
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = currentTradeType === 'BUY' ? 'CONFIRM BUY' : 'CONFIRM SELL';
+            }}
+        }})
+        .catch(err => {{
+            alert('Error: ' + err.message);
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = currentTradeType === 'BUY' ? 'CONFIRM BUY' : 'CONFIRM SELL';
+        }});
+}}
+
+// ═══ PDF REPORT GENERATION ═══
+function generateReport() {{
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+
+    // Show loading indicator
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = '⏳ GEN...';
+    btn.disabled = true;
+
+    // Generate and download report
+    fetch(`/?action=generate_report&month=${{month}}&year=${{year}}`)
+        .then(response => {{
+            if (!response.ok) {{
+                return response.json().then(data => {{
+                    throw new Error(data.error || 'Failed to generate report');
+                }});
+            }}
+            return response.blob();
+        }})
+        .then(blob => {{
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `report_${{year}}_${{String(month).padStart(2, '0')}}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+
+            // Reset button
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }})
+        .catch(err => {{
+            alert('Error generating report: ' + err.message);
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }});
+}}
+
+// ═══ INSIDER TRADING PANEL ═══
+let insiderPanelVisible = false;
+
+function toggleInsiderPanel() {{
+    const panel = document.getElementById('insiderPanel');
+    if (!panel) {{
+        createInsiderPanel();
+        loadInsiderFeed();
+    }} else {{
+        insiderPanelVisible = !insiderPanelVisible;
+        panel.style.display = insiderPanelVisible ? 'block' : 'none';
+        if (insiderPanelVisible) loadInsiderFeed();
+    }}
+}}
+
+function createInsiderPanel() {{
+    const panel = document.createElement('div');
+    panel.id = 'insiderPanel';
+    panel.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 20px;
+        width: 420px;
+        max-height: 80vh;
+        background: linear-gradient(180deg, #0d1117 0%, #161b22 100%);
+        border: 1px solid #22c55e;
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(34, 197, 94, 0.2);
+        z-index: 9999;
+        overflow: hidden;
+        font-family: 'Consolas', 'Monaco', monospace;
+    `;
+
+    panel.innerHTML = `
+        <div style="padding:12px 16px;background:#0f1419;border-bottom:1px solid #22c55e;display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:#22c55e;font-weight:bold;font-size:14px;">📊 INSIDER ACTIVITY</span>
+            <div>
+                <select id="insiderScope" onchange="loadInsiderFeed()" style="background:#1a1f25;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:4px 8px;font-size:12px;margin-right:8px;">
+                    <option value="portfolio">Portfolio</option>
+                    <option value="watchlist">Watchlist</option>
+                    <option value="all">All</option>
+                </select>
+                <button onclick="loadInsiderFeed()" style="background:none;border:none;color:#22c55e;cursor:pointer;font-size:14px;">🔄</button>
+                <button onclick="toggleInsiderPanel()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:18px;margin-left:8px;">×</button>
+            </div>
+        </div>
+        <div id="insiderFeedContent" style="padding:12px;max-height:calc(80vh - 60px);overflow-y:auto;">
+            <div style="color:#6b7280;text-align:center;padding:20px;">Loading...</div>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+    insiderPanelVisible = true;
+}}
+
+function loadInsiderFeed() {{
+    const content = document.getElementById('insiderFeedContent');
+    const scope = document.getElementById('insiderScope')?.value || 'portfolio';
+
+    content.innerHTML = '<div style="color:#6b7280;text-align:center;padding:20px;">⏳ Loading insider data...</div>';
+
+    fetch(`/?action=insider_feed&scope=${{scope}}&limit=30`)
+        .then(r => r.json())
+        .then(data => {{
+            if (!data.success || !data.data.transactions.length) {{
+                content.innerHTML = '<div style="color:#6b7280;text-align:center;padding:20px;">No insider transactions found</div>';
+                return;
+            }}
+
+            let html = '';
+            const transactions = data.data.transactions;
+
+            // Group by date
+            let currentDate = '';
+            for (const t of transactions) {{
+                if (t.date !== currentDate) {{
+                    currentDate = t.date;
+                    html += `<div style="color:#6b7280;font-size:10px;margin:12px 0 6px 0;text-transform:uppercase;border-bottom:1px solid #1f2937;padding-bottom:4px;">${{formatDate(t.date)}}</div>`;
+                }}
+
+                const isBuy = t.transaction_type === 'BUY';
+                const color = isBuy ? '#22c55e' : '#ef4444';
+                const icon = isBuy ? '📈' : '📉';
+                const value = formatMoney(t.value);
+
+                html += `
+                    <div style="padding:8px;margin:4px 0;background:#1a1f25;border-radius:6px;border-left:3px solid ${{color}};">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                            <div>
+                                <span style="color:#ffd700;font-weight:bold;">${{t.ticker}}</span>
+                                <span style="color:${{color}};font-size:12px;margin-left:6px;">${{icon}} ${{isBuy ? 'ACHAT' : 'VENTE'}}</span>
+                            </div>
+                            <span style="color:${{color}};font-weight:bold;">${{value}}</span>
+                        </div>
+                        <div style="color:#9ca3af;font-size:11px;margin-top:4px;">
+                            ${{t.insider_name}} <span style="color:#6b7280;">(${{t.insider_title || 'Director'}})</span>
+                        </div>
+                        <div style="color:#6b7280;font-size:10px;margin-top:2px;">
+                            ${{t.shares.toLocaleString()}} actions @ ${{t.price.toFixed(2)}}€
+                        </div>
+                    </div>
+                `;
+            }}
+
+            content.innerHTML = html || '<div style="color:#6b7280;text-align:center;padding:20px;">No data</div>';
+        }})
+        .catch(err => {{
+            content.innerHTML = `<div style="color:#ef4444;text-align:center;padding:20px;">Error: ${{err.message}}</div>`;
+        }});
+}}
+
+function formatDate(dateStr) {{
+    const d = new Date(dateStr);
+    const options = {{ day: 'numeric', month: 'short', year: 'numeric' }};
+    return d.toLocaleDateString('fr-FR', options);
+}}
+
+function formatMoney(val) {{
+    if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M€';
+    if (val >= 1000) return (val / 1000).toFixed(0) + 'k€';
+    return val.toFixed(0) + '€';
+}}
+
+// Keyboard shortcut for F8
+document.addEventListener('keydown', function(e) {{
+    if (e.key === 'F8') {{
+        e.preventDefault();
+        toggleInsiderPanel();
+    }}
+}});
+
+// ═══ REBALANCING PANEL ═══
+let rebalancePanelVisible = false;
+
+function toggleRebalancePanel() {{
+    const panel = document.getElementById('rebalancePanel');
+    if (!panel) {{
+        createRebalancePanel();
+        loadRebalanceAnalysis();
+    }} else {{
+        rebalancePanelVisible = !rebalancePanelVisible;
+        panel.style.display = rebalancePanelVisible ? 'block' : 'none';
+        if (rebalancePanelVisible) loadRebalanceAnalysis();
+    }}
+}}
+
+function createRebalancePanel() {{
+    const panel = document.createElement('div');
+    panel.id = 'rebalancePanel';
+    panel.style.cssText = `
+        position: fixed;
+        top: 60px;
+        right: 460px;
+        width: 520px;
+        max-height: 85vh;
+        background: linear-gradient(180deg, #0d1117 0%, #161b22 100%);
+        border: 1px solid #f59e0b;
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(245, 158, 11, 0.2);
+        z-index: 9998;
+        overflow: hidden;
+        font-family: 'Consolas', 'Monaco', monospace;
+    `;
+
+    panel.innerHTML = `
+        <div style="padding:12px 16px;background:#0f1419;border-bottom:1px solid #f59e0b;display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:#f59e0b;font-weight:bold;font-size:14px;">⚖️ REBALANCING</span>
+            <div>
+                <select id="rebalanceMethod" onchange="loadRebalanceAnalysis()" style="background:#1a1f25;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:4px 8px;font-size:12px;margin-right:8px;">
+                    <option value="equal">Équipondéré</option>
+                    <option value="score">Pondéré Score</option>
+                    <option value="conviction">Conviction</option>
+                </select>
+                <button onclick="loadRebalanceAnalysis()" style="background:none;border:none;color:#f59e0b;cursor:pointer;font-size:14px;">🔄</button>
+                <button onclick="toggleRebalancePanel()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:18px;margin-left:8px;">×</button>
+            </div>
+        </div>
+        <div id="rebalanceContent" style="padding:12px;max-height:calc(85vh - 60px);overflow-y:auto;">
+            <div style="color:#6b7280;text-align:center;padding:20px;">Loading...</div>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+    rebalancePanelVisible = true;
+}}
+
+function loadRebalanceAnalysis() {{
+    const content = document.getElementById('rebalanceContent');
+    const method = document.getElementById('rebalanceMethod')?.value || 'equal';
+
+    content.innerHTML = '<div style="color:#6b7280;text-align:center;padding:20px;">⏳ Analyzing portfolio...</div>';
+
+    Promise.all([
+        fetch('/?action=rebalance_analyze').then(r => r.json()),
+        fetch(`/?action=rebalance_propose&method=${{method}}`).then(r => r.json())
+    ])
+    .then(([analysis, proposals]) => {{
+        if (!analysis.success || !proposals.success) {{
+            content.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px;">Error loading data</div>';
+            return;
+        }}
+
+        const data = analysis.data;
+        const propData = proposals.data;
+        let html = '';
+
+        // Summary stats
+        html += `
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;">
+                <div style="background:#1a1f25;padding:10px;border-radius:6px;text-align:center;">
+                    <div style="color:#6b7280;font-size:10px;text-transform:uppercase;">Portfolio</div>
+                    <div style="color:#ffd700;font-size:18px;font-weight:bold;">${{formatMoney(data.total_portfolio_value)}}</div>
+                </div>
+                <div style="background:#1a1f25;padding:10px;border-radius:6px;text-align:center;">
+                    <div style="color:#6b7280;font-size:10px;text-transform:uppercase;">Positions</div>
+                    <div style="color:#22d3ee;font-size:18px;font-weight:bold;">${{data.num_positions}}</div>
+                </div>
+                <div style="background:#1a1f25;padding:10px;border-radius:6px;text-align:center;">
+                    <div style="color:#6b7280;font-size:10px;text-transform:uppercase;">Statut</div>
+                    <div style="color:${{data.is_balanced ? '#22c55e' : '#f59e0b'}};font-size:18px;font-weight:bold;">
+                        ${{data.is_balanced ? '✓ OK' : '⚠️ ' + data.imbalances.length}}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Imbalances section
+        if (data.imbalances && data.imbalances.length > 0) {{
+            html += `<div style="color:#f59e0b;font-size:12px;font-weight:bold;margin:12px 0 8px 0;text-transform:uppercase;">⚠️ Déséquilibres détectés</div>`;
+            for (const imb of data.imbalances) {{
+                const color = imb.severity === 'critical' ? '#ef4444' : '#f59e0b';
+                const icon = imb.severity === 'critical' ? '🔴' : '🟡';
+                html += `
+                    <div style="padding:8px;margin:4px 0;background:#1a1f25;border-radius:6px;border-left:3px solid ${{color}};">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <span style="color:#ffd700;font-weight:bold;">${{icon}} ${{imb.ticker}}</span>
+                            <span style="color:${{color}};font-size:11px;padding:2px 6px;background:rgba(245,158,11,0.1);border-radius:4px;">${{imb.imbalance_type}}</span>
+                        </div>
+                        <div style="color:#9ca3af;font-size:11px;margin-top:4px;">${{imb.message}}</div>
+                        <div style="color:#6b7280;font-size:10px;margin-top:2px;">
+                            Action suggérée: <span style="color:#22d3ee;">${{imb.suggested_action}}</span>
+                        </div>
+                    </div>
+                `;
+            }}
+        }}
+
+        // Trade proposals section
+        if (propData.proposals && propData.proposals.length > 0) {{
+            html += `
+                <div style="color:#22d3ee;font-size:12px;font-weight:bold;margin:16px 0 8px 0;text-transform:uppercase;">📋 Propositions de trades</div>
+                <div style="display:flex;gap:12px;margin-bottom:12px;">
+                    <div style="flex:1;background:#0f2818;padding:8px;border-radius:6px;text-align:center;border:1px solid #22c55e30;">
+                        <div style="color:#6b7280;font-size:10px;">À acheter</div>
+                        <div style="color:#22c55e;font-weight:bold;">${{formatMoney(propData.total_buy)}}</div>
+                    </div>
+                    <div style="flex:1;background:#280f0f;padding:8px;border-radius:6px;text-align:center;border:1px solid #ef444430;">
+                        <div style="color:#6b7280;font-size:10px;">À vendre</div>
+                        <div style="color:#ef4444;font-weight:bold;">${{formatMoney(propData.total_sell)}}</div>
+                    </div>
+                    <div style="flex:1;background:#1a1f25;padding:8px;border-radius:6px;text-align:center;">
+                        <div style="color:#6b7280;font-size:10px;">Net</div>
+                        <div style="color:#ffd700;font-weight:bold;">${{formatMoney(propData.net_flow)}}</div>
+                    </div>
+                </div>
+            `;
+
+            for (const trade of propData.proposals) {{
+                const isBuy = trade.action === 'ADD';
+                const color = isBuy ? '#22c55e' : (trade.action === 'SELL' ? '#ef4444' : '#f59e0b');
+                const arrow = trade.deviation > 0 ? '↑' : '↓';
+
+                html += `
+                    <div style="padding:8px;margin:4px 0;background:#1a1f25;border-radius:6px;border-left:3px solid ${{color}};">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <div>
+                                <span style="color:#ffd700;font-weight:bold;">${{trade.ticker}}</span>
+                                <span style="color:${{color}};font-size:11px;margin-left:6px;">${{trade.action}}</span>
+                            </div>
+                            <span style="color:${{color}};font-weight:bold;">${{trade.trade_value > 0 ? '+' : ''}}${{formatMoney(Math.abs(trade.trade_value))}}</span>
+                        </div>
+                        <div style="color:#9ca3af;font-size:11px;margin-top:4px;">
+                            ${{trade.current_weight.toFixed(1)}}% ${{arrow}} ${{trade.target_weight.toFixed(1)}}%
+                            <span style="color:#6b7280;margin-left:8px;">(${{trade.deviation > 0 ? '+' : ''}}${{trade.deviation.toFixed(1)}}%)</span>
+                        </div>
+                        <div style="color:#6b7280;font-size:10px;margin-top:2px;">
+                            ~${{Math.abs(trade.shares_to_trade).toFixed(0)}} actions @ ${{trade.current_price.toFixed(2)}}€
+                        </div>
+                    </div>
+                `;
+            }}
+        }} else {{
+            html += `<div style="color:#22c55e;text-align:center;padding:20px;background:#0f2818;border-radius:6px;margin-top:12px;">
+                ✓ Portfolio équilibré - Aucune action requise
+            </div>`;
+        }}
+
+        content.innerHTML = html;
+    }})
+    .catch(err => {{
+        content.innerHTML = `<div style="color:#ef4444;text-align:center;padding:20px;">Error: ${{err.message}}</div>`;
+    }});
+}}
+
+// Keyboard shortcut for F9
+document.addEventListener('keydown', function(e) {{
+    if (e.key === 'F9') {{
+        e.preventDefault();
+        toggleRebalancePanel();
+    }}
+}});
+
+// ═══ HEATMAP TREEMAP PANEL ═══
+let heatmapPanelVisible = false;
+let heatmapMetric = 'pnl_pct';
+let heatmapGrouping = 'sector';
+let heatmapData = null;
+
+function toggleHeatmapPanel() {{
+    const panel = document.getElementById('heatmapPanel');
+    if (!panel) {{
+        createHeatmapPanel();
+        loadHeatmapData();
+    }} else {{
+        heatmapPanelVisible = !heatmapPanelVisible;
+        panel.style.display = heatmapPanelVisible ? 'block' : 'none';
+        if (heatmapPanelVisible) loadHeatmapData();
+    }}
+}}
+
+function createHeatmapPanel() {{
+    const panel = document.createElement('div');
+    panel.id = 'heatmapPanel';
+    panel.style.cssText = `
+        position: fixed;
+        top: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90vw;
+        max-width: 1400px;
+        height: 80vh;
+        background: linear-gradient(180deg, #0d1117 0%, #161b22 100%);
+        border: 1px solid #a855f7;
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(168, 85, 247, 0.3);
+        z-index: 10000;
+        overflow: hidden;
+        font-family: 'Consolas', 'Monaco', monospace;
+    `;
+
+    panel.innerHTML = `
+        <div style="padding:12px 16px;background:#0f1419;border-bottom:1px solid #a855f7;display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:#a855f7;font-weight:bold;font-size:14px;">📊 MARKET HEATMAP</span>
+            <div style="display:flex;gap:12px;align-items:center;">
+                <div>
+                    <label style="color:#6b7280;font-size:11px;margin-right:4px;">Couleur:</label>
+                    <select id="heatmapMetric" onchange="changeHeatmapMetric(this.value)" style="background:#1a1f25;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:4px 8px;font-size:11px;">
+                        <option value="pnl_pct" selected>P&L Total</option>
+                        <option value="change_pct">Perf Jour</option>
+                        <option value="ytd_pct">Perf YTD</option>
+                        <option value="score">Score Higgons</option>
+                        <option value="pe">PE Ratio</option>
+                        <option value="pcf">P/CF Ratio</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="color:#6b7280;font-size:11px;margin-right:4px;">Grouper:</label>
+                    <select id="heatmapGrouping" onchange="changeHeatmapGrouping(this.value)" style="background:#1a1f25;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:4px 8px;font-size:11px;">
+                        <option value="sector">Secteur</option>
+                        <option value="country">Pays</option>
+                        <option value="flat">Aucun</option>
+                    </select>
+                </div>
+                <button onclick="loadHeatmapData()" style="background:none;border:none;color:#a855f7;cursor:pointer;font-size:14px;">🔄</button>
+                <button onclick="toggleHeatmapPanel()" style="background:none;border:none;color:#6b7280;cursor:pointer;font-size:18px;">×</button>
+            </div>
+        </div>
+        <div id="heatmapContainer" style="width:100%;height:calc(100% - 50px);position:relative;">
+            <div style="color:#6b7280;text-align:center;padding:40px;">Loading...</div>
+        </div>
+        <div id="heatmapTooltip" style="position:fixed;display:none;background:#1a1f25;border:1px solid #374151;border-radius:6px;padding:12px;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:10001;pointer-events:none;min-width:200px;"></div>
+    `;
+
+    document.body.appendChild(panel);
+    heatmapPanelVisible = true;
+}}
+
+function changeHeatmapMetric(metric) {{
+    heatmapMetric = metric;
+    renderHeatmap();
+}}
+
+function changeHeatmapGrouping(grouping) {{
+    heatmapGrouping = grouping;
+    loadHeatmapData();
+}}
+
+function loadHeatmapData() {{
+    const container = document.getElementById('heatmapContainer');
+    if (!container) return;
+
+    container.innerHTML = '<div style="color:#6b7280;text-align:center;padding:40px;">⏳ Loading heatmap data...</div>';
+
+    fetch(`/?action=heatmap_data&grouping=${{heatmapGrouping}}`)
+        .then(r => r.json())
+        .then(data => {{
+            if (!data.success) {{
+                container.innerHTML = '<div style="color:#ef4444;text-align:center;padding:40px;">Error loading data</div>';
+                return;
+            }}
+            heatmapData = data.data;
+            renderHeatmap();
+        }})
+        .catch(err => {{
+            container.innerHTML = `<div style="color:#ef4444;text-align:center;padding:40px;">Error: ${{err.message}}</div>`;
+        }});
+}}
+
+function getColorForValue(value, metric) {{
+    // Returns color based on metric type and value
+    if (value === null || value === undefined) return '#374151';
+
+    if (metric === 'pe') {{
+        // PE: < 10 green, 10-12 orange, > 12 red
+        if (value < 10) {{
+            return 'rgb(34, 197, 94)';  // Green
+        }} else if (value <= 12) {{
+            return 'rgb(251, 146, 60)'; // Orange
+        }} else {{
+            return 'rgb(239, 68, 68)';  // Red
+        }}
+    }} else if (metric === 'pcf') {{
+        // P/CF: <= 8 green (excellent), 8-12 orange (correct), > 12 red (expensive)
+        if (value <= 8) {{
+            return 'rgb(34, 197, 94)';  // Green - excellent
+        }} else if (value <= 12) {{
+            return 'rgb(251, 146, 60)'; // Orange - correct
+        }} else {{
+            return 'rgb(239, 68, 68)';  // Red - expensive
+        }}
+    }} else if (metric === 'score') {{
+        // Score: 0-4 red, 5-6 orange, 7-10 green
+        if (value >= 7) {{
+            const intensity = Math.min((value - 7) / 3, 1);
+            return `rgb(${{34 - intensity * 10}}, ${{150 + intensity * 47}}, ${{70 + intensity * 24}})`;
+        }} else if (value >= 5) {{
+            return 'rgb(251, 146, 60)'; // Orange
+        }} else {{
+            const intensity = Math.min((5 - value) / 5, 1);
+            return `rgb(${{180 + intensity * 59}}, ${{68 - intensity * 30}}, ${{68 - intensity * 30}})`;
+        }}
+    }} else {{
+        // Performance metrics: positive = green, negative = red
+        // Scale: -10% to +10%
+        const normalized = Math.max(-1, Math.min(1, value / 10));
+        if (normalized >= 0) {{
+            const intensity = normalized;
+            return `rgb(${{34 - intensity * 10}}, ${{100 + intensity * 97}}, ${{50 + intensity * 44}})`;
+        }} else {{
+            const intensity = -normalized;
+            return `rgb(${{180 + intensity * 59}}, ${{68 - intensity * 30}}, ${{68 - intensity * 30}})`;
+        }}
+    }}
+}}
+
+function squarify(data, x, y, width, height) {{
+    // Squarified treemap algorithm
+    if (!data.length) return [];
+
+    const totalValue = data.reduce((sum, d) => sum + d.value, 0);
+    if (totalValue === 0) return [];
+
+    const results = [];
+    let remaining = [...data];
+    let currentX = x, currentY = y, currentW = width, currentH = height;
+
+    while (remaining.length > 0) {{
+        const isHorizontal = currentW >= currentH;
+        const side = isHorizontal ? currentH : currentW;
+
+        let row = [];
+        let rowValue = 0;
+        let worstRatio = Infinity;
+
+        for (let i = 0; i < remaining.length; i++) {{
+            const testRow = [...row, remaining[i]];
+            const testValue = rowValue + remaining[i].value;
+            const testRatio = getWorstRatio(testRow, testValue, side, totalValue, currentW * currentH);
+
+            if (testRatio <= worstRatio) {{
+                row = testRow;
+                rowValue = testValue;
+                worstRatio = testRatio;
+            }} else {{
+                break;
+            }}
+        }}
+
+        // Layout this row
+        const rowArea = (rowValue / totalValue) * currentW * currentH;
+        const rowLength = rowArea / side;
+
+        let offset = 0;
+        for (const item of row) {{
+            const itemArea = (item.value / totalValue) * currentW * currentH;
+            const itemLength = itemArea / rowLength;
+
+            if (isHorizontal) {{
+                results.push({{
+                    ...item,
+                    x: currentX,
+                    y: currentY + offset,
+                    width: rowLength,
+                    height: itemLength
+                }});
+            }} else {{
+                results.push({{
+                    ...item,
+                    x: currentX + offset,
+                    y: currentY,
+                    width: itemLength,
+                    height: rowLength
+                }});
+            }}
+            offset += itemLength;
+        }}
+
+        // Update remaining area
+        remaining = remaining.slice(row.length);
+        if (isHorizontal) {{
+            currentX += rowLength;
+            currentW -= rowLength;
+        }} else {{
+            currentY += rowLength;
+            currentH -= rowLength;
+        }}
+    }}
+
+    return results;
+}}
+
+function getWorstRatio(row, rowValue, side, totalValue, totalArea) {{
+    if (!row.length) return Infinity;
+    const rowArea = (rowValue / totalValue) * totalArea;
+    const rowLength = rowArea / side;
+
+    let worst = 0;
+    for (const item of row) {{
+        const itemArea = (item.value / totalValue) * totalArea;
+        const itemLength = itemArea / rowLength;
+        const ratio = Math.max(rowLength / itemLength, itemLength / rowLength);
+        worst = Math.max(worst, ratio);
+    }}
+    return worst;
+}}
+
+function renderHeatmap() {{
+    const container = document.getElementById('heatmapContainer');
+    if (!container || !heatmapData) return;
+
+    const rect = container.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    const padding = 4;
+    const groupPadding = 20;
+
+    container.innerHTML = '';
+
+    const groups = heatmapData.groups;
+    if (!groups || !groups.length) {{
+        container.innerHTML = '<div style="color:#6b7280;text-align:center;padding:40px;">No data available</div>';
+        return;
+    }}
+
+    // Calculate group rectangles
+    const groupData = groups.map(g => ({{ name: g.name, value: g.value, positions: g.positions }}));
+    const groupRects = squarify(groupData, padding, padding, width - padding * 2, height - padding * 2);
+
+    for (const groupRect of groupRects) {{
+        const group = groups.find(g => g.name === groupRect.name);
+        if (!group) continue;
+
+        // Create group container
+        const groupDiv = document.createElement('div');
+        groupDiv.style.cssText = `
+            position: absolute;
+            left: ${{groupRect.x}}px;
+            top: ${{groupRect.y}}px;
+            width: ${{groupRect.width}}px;
+            height: ${{groupRect.height}}px;
+            border: 1px solid #374151;
+            box-sizing: border-box;
+            overflow: hidden;
+        `;
+
+        // Group header
+        if (heatmapGrouping !== 'flat') {{
+            const header = document.createElement('div');
+            header.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                background: rgba(15, 20, 25, 0.9);
+                color: #9ca3af;
+                font-size: 10px;
+                padding: 2px 4px;
+                text-transform: uppercase;
+                z-index: 1;
+                border-bottom: 1px solid #374151;
+            `;
+            header.textContent = `${{groupRect.name}} (${{(group.weight ?? 0).toFixed(1)}}%)`;
+            groupDiv.appendChild(header);
+        }}
+
+        // Calculate position rectangles within group
+        const innerX = 0;
+        const innerY = heatmapGrouping !== 'flat' ? 18 : 0;
+        const innerW = groupRect.width - 2;
+        const innerH = groupRect.height - (heatmapGrouping !== 'flat' ? 20 : 2);
+
+        const posData = group.positions.map(p => ({{ ...p }}));
+        const posRects = squarify(posData, innerX, innerY, innerW, innerH);
+
+        for (const posRect of posRects) {{
+            const pos = group.positions.find(p => p.ticker === posRect.ticker);
+            if (!pos) continue;
+
+            const metricValue = pos[heatmapMetric];
+            const bgColor = getColorForValue(metricValue, heatmapMetric);
+
+            const posDiv = document.createElement('div');
+            posDiv.className = 'heatmap-cell';
+            posDiv.dataset.ticker = pos.ticker;
+            posDiv.style.cssText = `
+                position: absolute;
+                left: ${{posRect.x + 1}}px;
+                top: ${{posRect.y + 1}}px;
+                width: ${{Math.max(posRect.width - 2, 0)}}px;
+                height: ${{Math.max(posRect.height - 2, 0)}}px;
+                background: ${{bgColor}};
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                cursor: pointer;
+                transition: transform 0.1s, box-shadow 0.1s;
+                overflow: hidden;
+            `;
+
+            // Content based on cell size
+            if (posRect.width > 60 && posRect.height > 40) {{
+                const safeValue = metricValue ?? 0;
+                const displayValue = heatmapMetric === 'pe' ? (metricValue !== null ? metricValue : '-') :
+                                     heatmapMetric === 'score' ? `${{metricValue ?? 5}}/10` :
+                                     `${{safeValue >= 0 ? '+' : ''}}${{safeValue.toFixed(1)}}%`;
+                posDiv.innerHTML = `
+                    <div style="color:#fff;font-weight:bold;font-size:${{posRect.width > 100 ? '13px' : '11px'}};text-shadow:0 1px 2px rgba(0,0,0,0.5);">${{pos.ticker}}</div>
+                    <div style="color:rgba(255,255,255,0.9);font-size:${{posRect.width > 100 ? '12px' : '10px'}};">${{displayValue}}</div>
+                    ${{posRect.height > 55 ? `<div style="color:rgba(255,255,255,0.6);font-size:9px;">${{(pos.weight ?? 0).toFixed(1)}}%</div>` : ''}}
+                `;
+            }} else if (posRect.width > 35 && posRect.height > 25) {{
+                posDiv.innerHTML = `<div style="color:#fff;font-weight:bold;font-size:10px;text-shadow:0 1px 2px rgba(0,0,0,0.5);">${{pos.ticker}}</div>`;
+            }}
+
+            // Hover events
+            posDiv.addEventListener('mouseenter', (e) => showHeatmapTooltip(e, pos));
+            posDiv.addEventListener('mouseleave', hideHeatmapTooltip);
+            posDiv.addEventListener('mousemove', (e) => moveHeatmapTooltip(e));
+
+            // Click to navigate
+            posDiv.addEventListener('click', () => {{
+                window.location.href = `/?detail=${{pos.ticker}}`;
+            }});
+
+            groupDiv.appendChild(posDiv);
+        }}
+
+        container.appendChild(groupDiv);
+    }}
+
+    // Add hover style
+    const style = document.createElement('style');
+    style.textContent = `
+        .heatmap-cell:hover {{
+            transform: scale(1.02);
+            box-shadow: 0 0 12px rgba(255,255,255,0.3);
+            z-index: 10;
+        }}
+    `;
+    container.appendChild(style);
+}}
+
+function showHeatmapTooltip(e, pos) {{
+    const tooltip = document.getElementById('heatmapTooltip');
+    if (!tooltip) return;
+
+    const pe = pos.pe ?? null;
+    const roe = pos.roe ?? null;
+    const score = pos.score ?? 5;
+    const pnl = pos.pnl_pct ?? 0;
+    const change = pos.change_pct ?? 0;
+    const weight = pos.weight ?? 0;
+
+    const peColor = pe !== null ? (pe < 10 ? '#22c55e' : (pe < 17 ? '#ffd700' : '#ef4444')) : '#6b7280';
+    const roeColor = roe !== null ? (roe > 15 ? '#22c55e' : (roe > 10 ? '#ffd700' : '#ef4444')) : '#6b7280';
+    const scoreColor = score >= 7 ? '#22c55e' : (score >= 4 ? '#ffd700' : '#ef4444');
+    const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
+
+    tooltip.innerHTML = `
+        <div style="font-weight:bold;color:#ffd700;margin-bottom:8px;">${{pos.ticker}} - ${{pos.name}}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;">
+            <div style="color:#6b7280;">Secteur:</div><div style="color:#9ca3af;">${{pos.sector}}</div>
+            <div style="color:#6b7280;">Poids:</div><div style="color:#22d3ee;">${{weight.toFixed(1)}}%</div>
+            <div style="color:#6b7280;">Valeur:</div><div style="color:#fff;">${{formatMoney(pos.value)}}</div>
+            <div style="color:#6b7280;">P&L:</div><div style="color:${{pnlColor}};">${{pnl >= 0 ? '+' : ''}}${{pnl.toFixed(1)}}%</div>
+            <div style="color:#6b7280;">Jour:</div><div style="color:${{change >= 0 ? '#22c55e' : '#ef4444'}};">${{change >= 0 ? '+' : ''}}${{change.toFixed(2)}}%</div>
+            <div style="color:#6b7280;">PE:</div><div style="color:${{peColor}};">${{pe !== null ? pe : '-'}}</div>
+            <div style="color:#6b7280;">ROE:</div><div style="color:${{roeColor}};">${{roe !== null ? roe.toFixed(1) + '%' : '-'}}</div>
+            <div style="color:#6b7280;">Score:</div><div style="color:${{scoreColor}};">${{score}}/10</div>
+        </div>
+    `;
+
+    tooltip.style.display = 'block';
+    moveHeatmapTooltip(e);
+}}
+
+function moveHeatmapTooltip(e) {{
+    const tooltip = document.getElementById('heatmapTooltip');
+    if (!tooltip) return;
+
+    let x = e.clientX + 15;
+    let y = e.clientY + 15;
+
+    // Keep tooltip on screen
+    const rect = tooltip.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth - 10) {{
+        x = e.clientX - rect.width - 15;
+    }}
+    if (y + rect.height > window.innerHeight - 10) {{
+        y = e.clientY - rect.height - 15;
+    }}
+
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+}}
+
+function hideHeatmapTooltip() {{
+    const tooltip = document.getElementById('heatmapTooltip');
+    if (tooltip) tooltip.style.display = 'none';
+}}
+
+// Keyboard shortcut for F10
+document.addEventListener('keydown', function(e) {{
+    if (e.key === 'F10') {{
+        e.preventDefault();
+        toggleHeatmapPanel();
+    }}
+}});
+</script>
+
 </body></html>'''
 
 
@@ -10775,9 +13367,95 @@ def gen_detail_html(data: Dict[str, Any]) -> str:
 <div style="display:flex;align-items:center;gap:16px;">
 <div class="bb-detail-price"><div class="bb-detail-price-val {price_cls}">{fmt(data['price'])} EUR</div><div class="bb-detail-change {chg_cls}">{chg_sign}{fmt(data['change'])} ({chg_sign}{fmt(data['change_pct'])}%)</div></div>
 <button class="bb-btn bb-btn-g" onclick="addToWatchlistDetail(this)" style="white-space:nowrap;padding:8px 16px;">+ WATCHLIST</button>
+<button class="bb-btn" onclick="toggleAlertConfig()" style="white-space:nowrap;padding:8px 16px;">🔔 ALERTS</button>
 </div>
 
 </div></div>
+
+<!-- Alert Configuration Panel -->
+<div id="alert-config-panel" class="bb-alert-config" style="display:none;">
+<div class="bb-alert-config-header">
+<span>🔔 Configure Alerts for {data['ticker']}</span>
+<button onclick="toggleAlertConfig()" style="background:none;border:none;color:#888;cursor:pointer;font-size:16px;">✕</button>
+</div>
+<div class="bb-alert-config-body">
+<div class="bb-alert-config-row">
+<label>PE Threshold (alert when PE &lt; this)</label>
+<input type="number" id="alert-pe" value="10" step="0.5" placeholder="e.g. 10">
+</div>
+<div class="bb-alert-config-row">
+<label>ROE Threshold % (alert when ROE &gt; this)</label>
+<input type="number" id="alert-roe" value="12" step="0.5" placeholder="e.g. 12">
+</div>
+<div class="bb-alert-config-row">
+<label>Price Below (alert when price drops below)</label>
+<input type="number" id="alert-price-below" step="0.01" placeholder="e.g. {fmt(data['price']*0.9) if data['price'] else ''}">
+</div>
+<div class="bb-alert-config-row">
+<label>Price Above (alert when price rises above)</label>
+<input type="number" id="alert-price-above" step="0.01" placeholder="e.g. {fmt(data['price']*1.1) if data['price'] else ''}">
+</div>
+<div class="bb-alert-config-actions">
+<button class="bb-btn bb-btn-g" onclick="saveAlertConfig()">💾 SAVE ALERTS</button>
+<button class="bb-btn" onclick="toggleAlertConfig()">CANCEL</button>
+</div>
+</div>
+</div>
+
+<style>
+.bb-alert-config {{
+  background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+  border: 1px solid #ff9500;
+  border-radius: 4px;
+  margin: 15px 0;
+  overflow: hidden;
+}}
+.bb-alert-config-header {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 15px;
+  background: linear-gradient(90deg, rgba(255,149,0,0.2) 0%, transparent 100%);
+  border-bottom: 1px solid #333;
+  color: #ff9500;
+  font-weight: 600;
+}}
+.bb-alert-config-body {{
+  padding: 15px;
+}}
+.bb-alert-config-row {{
+  margin-bottom: 12px;
+}}
+.bb-alert-config-row label {{
+  display: block;
+  color: #888;
+  font-size: 11px;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}}
+.bb-alert-config-row input {{
+  width: 100%;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #fff;
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  border-radius: 3px;
+}}
+.bb-alert-config-row input:focus {{
+  border-color: #ff9500;
+  outline: none;
+}}
+.bb-alert-config-actions {{
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #333;
+}}
+</style>
 
 <div class="bb-chart-container">
 
@@ -10871,6 +13549,23 @@ def gen_detail_html(data: Dict[str, Any]) -> str:
 
 </div>
 
+<div class="bb-detail-card bb-dividend-section" id="dividend-section">
+<h3>💰 Dividends</h3>
+<div id="dividend-loading" style="color:#666;font-size:11px;text-align:center;padding:20px;">Loading dividend data...</div>
+<div id="dividend-content" style="display:none;">
+<div class="bb-metric"><span class="bb-metric-label">Annual Dividend</span><span class="bb-metric-val" id="div-annual">-</span></div>
+<div class="bb-metric"><span class="bb-metric-label">Dividend Yield</span><span class="bb-metric-val" id="div-yield-detail">-</span></div>
+<div class="bb-metric"><span class="bb-metric-label">Frequency</span><span class="bb-metric-val" id="div-freq">-</span></div>
+<div class="bb-metric"><span class="bb-metric-label">5Y Growth (CAGR)</span><span class="bb-metric-val" id="div-growth">-</span></div>
+<div class="bb-metric"><span class="bb-metric-label">Next Ex-Date</span><span class="bb-metric-val" id="div-next">-</span></div>
+<div id="div-history-mini" style="margin-top:10px;border-top:1px solid #333;padding-top:10px;">
+<div style="color:#888;font-size:9px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Recent Payments</div>
+<div id="div-history-list" style="max-height:100px;overflow-y:auto;"></div>
+</div>
+</div>
+<div id="dividend-empty" style="display:none;color:#666;font-size:11px;text-align:center;padding:15px;font-style:italic;">No dividend history available for this security.</div>
+</div>
+
 <div class="bb-detail-card bb-detail-desc"><h3>Business Description</h3>
 
 <p>{(data['description'][:800]+'...') if len(data['description'])>800 else data['description'] or 'No description available.'}</p>
@@ -10904,6 +13599,40 @@ function addToWatchlistDetail(btn) {{
         }})
         .catch(err => {{
             alert('Error adding to watchlist: ' + err);
+        }});
+}}
+
+// Alert configuration functions
+function toggleAlertConfig() {{
+    const panel = document.getElementById('alert-config-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}}
+
+function saveAlertConfig() {{
+    const ticker = '{data["ticker"]}';
+    const pe = document.getElementById('alert-pe').value;
+    const roe = document.getElementById('alert-roe').value;
+    const priceBelow = document.getElementById('alert-price-below').value;
+    const priceAbove = document.getElementById('alert-price-above').value;
+
+    let url = `/?action=set_alert_config&ticker=${{ticker}}`;
+    if (pe) url += `&pe_threshold=${{pe}}`;
+    if (roe) url += `&roe_threshold=${{roe}}`;
+    if (priceBelow) url += `&price_below=${{priceBelow}}`;
+    if (priceAbove) url += `&price_above=${{priceAbove}}`;
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {{
+            if (data.success) {{
+                alert('✓ Alert configuration saved for ' + ticker);
+                toggleAlertConfig();
+            }} else {{
+                alert('Error: ' + (data.error || 'Unknown error'));
+            }}
+        }})
+        .catch(err => {{
+            alert('Error saving alert config: ' + err);
         }});
 }}
 
@@ -11260,6 +13989,65 @@ document.getElementById('createMemoForm')?.addEventListener('submit', function(e
     }});
 
 }});
+
+// Load dividend data for this ticker
+function loadTickerDividends() {{
+    const ticker = '{data["ticker"]}';
+    fetch(`/?action=dividends_ticker&ticker=${{ticker}}&years=5`)
+        .then(r => r.json())
+        .then(data => {{
+            const loading = document.getElementById('dividend-loading');
+            const content = document.getElementById('dividend-content');
+            const empty = document.getElementById('dividend-empty');
+
+            if (data.error) {{
+                loading.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }}
+
+            // Check if there's dividend data
+            if (!data.history || data.history.length === 0) {{
+                loading.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }}
+
+            // Populate dividend metrics
+            document.getElementById('div-annual').textContent = data.annual_dividend > 0 ? '€' + data.annual_dividend.toFixed(2) : '-';
+            document.getElementById('div-yield-detail').textContent = data.dividend_yield > 0 ? data.dividend_yield.toFixed(2) + '%' : '-';
+            document.getElementById('div-freq').textContent = data.frequency ? data.frequency.charAt(0).toUpperCase() + data.frequency.slice(1) : '-';
+            document.getElementById('div-growth').textContent = data.dividend_growth_5y !== null ? (data.dividend_growth_5y >= 0 ? '+' : '') + data.dividend_growth_5y.toFixed(1) + '%' : '-';
+            document.getElementById('div-next').textContent = data.next_ex_date || '-';
+
+            // Add growth color
+            const growthEl = document.getElementById('div-growth');
+            if (data.dividend_growth_5y !== null) {{
+                growthEl.classList.add(data.dividend_growth_5y >= 0 ? 'pos' : 'neg');
+            }}
+
+            // Show recent payments
+            const historyList = document.getElementById('div-history-list');
+            const recent = data.history.slice(0, 5);
+            historyList.innerHTML = recent.map(d => `
+                <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:10px;border-bottom:1px solid #1a1a1a;">
+                    <span style="color:#888;">${{d.date}}</span>
+                    <span style="color:#00ff00;">€${{d.amount.toFixed(4)}}</span>
+                </div>
+            `).join('');
+
+            loading.style.display = 'none';
+            content.style.display = 'block';
+        }})
+        .catch(err => {{
+            console.error('Error loading dividend data:', err);
+            document.getElementById('dividend-loading').style.display = 'none';
+            document.getElementById('dividend-empty').style.display = 'block';
+        }});
+}}
+
+// Load dividend data on page load
+setTimeout(loadTickerDividends, 500);
 
 </script>
 
@@ -11635,8 +14423,9 @@ class Handler(SimpleHTTPRequestHandler):
         p = urllib.parse.urlparse(self.path)
 
         q = urllib.parse.parse_qs(p.query)
+        log.info(f"[DO_GET] path={p.path}, action={q.get('action')}")
 
-        
+
 
         # Cache stats endpoint
 
@@ -11732,6 +14521,1424 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write((err or 'OK').encode('utf-8'))
             return
+
+        # ============== ALERTS API ==============
+
+        # GET /api/alerts - Get active alerts
+        if q.get('action') == ['get_alerts']:
+            try:
+                service = get_alerts_service()
+                alerts = service.check_alerts()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'alerts': [a.to_dict() for a in alerts],
+                    'count': len(alerts)
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting alerts: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/alerts/check - Force check alerts
+        if q.get('action') == ['check_alerts']:
+            try:
+                service = get_alerts_service()
+                alerts = service.check_alerts()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'alerts': [a.to_dict() for a in alerts],
+                    'count': len(alerts),
+                    'checked_at': datetime.now().isoformat()
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error checking alerts: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/watchlist/status - Get watchlist with alert status
+        if q.get('action') == ['watchlist_status']:
+            try:
+                service = get_alerts_service()
+                items = service.get_watchlist_with_status()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'watchlist': items,
+                    'count': len(items)
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting watchlist status: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/alerts/dismiss - Dismiss an alert
+        if q.get('action') == ['dismiss_alert']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+                alert_type = q.get('alert_type', [''])[0]
+                service = get_alerts_service()
+                success = service.dismiss_alert(ticker, alert_type)
+                self.send_response(200 if success else 404)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': success}).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error dismissing alert: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/alerts/config - Set alert config for a ticker
+        if q.get('action') == ['set_alert_config']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+                pe_threshold = q.get('pe_threshold', [None])[0]
+                roe_threshold = q.get('roe_threshold', [None])[0]
+                price_below = q.get('price_below', [None])[0]
+                price_above = q.get('price_above', [None])[0]
+
+                config = AlertConfig(
+                    pe_threshold=float(pe_threshold) if pe_threshold else None,
+                    roe_threshold=float(roe_threshold) if roe_threshold else None,
+                    price_below=float(price_below) if price_below else None,
+                    price_above=float(price_above) if price_above else None
+                )
+
+                service = get_alerts_service()
+                success = service.update_alert_config(ticker, config)
+
+                self.send_response(200 if success else 404)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': success,
+                    'ticker': ticker,
+                    'config': config.to_dict()
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error setting alert config: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # ============== BENCHMARK API ==============
+        log.info(f"[DEBUG] Checking benchmark routes, action={q.get('action')}")
+
+        # GET /api/benchmarks - Get list of available benchmarks
+        if q.get('action') == ['get_benchmarks']:
+            log.info("[DEBUG] Matched get_benchmarks!")
+            try:
+                benchmarks = [{'key': k, **v} for k, v in BENCHMARKS.items()]
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'benchmarks': benchmarks}).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting benchmarks: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/benchmark/compare - Get comparison data (portfolio vs benchmark)
+        if q.get('action') == ['benchmark_compare']:
+            try:
+                benchmark_key = q.get('benchmark', ['CACMS'])[0]
+                period = q.get('period', ['1Y'])[0]
+
+                service = get_benchmark_service()
+                data = service.get_comparison_data(benchmark_key, period)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(data).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting benchmark comparison: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/benchmark/metrics - Get performance metrics only
+        if q.get('action') == ['benchmark_metrics']:
+            try:
+                benchmark_key = q.get('benchmark', ['CACMS'])[0]
+                period = q.get('period', ['1Y'])[0]
+
+                service = get_benchmark_service()
+                metrics = service.calculate_metrics(benchmark_key, period)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(metrics.to_dict()).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting benchmark metrics: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/benchmark/history - Get benchmark price history
+        if q.get('action') == ['benchmark_history']:
+            try:
+                benchmark_key = q.get('benchmark', ['CACMS'])[0]
+                period = q.get('period', ['1Y'])[0]
+
+                # Calculate date range
+                end_date = datetime.now()
+                if period == 'YTD':
+                    start_date = datetime(end_date.year, 1, 1)
+                elif period == '1Y':
+                    start_date = end_date - timedelta(days=365)
+                elif period == '3Y':
+                    start_date = end_date - timedelta(days=365 * 3)
+                elif period == '5Y':
+                    start_date = end_date - timedelta(days=365 * 5)
+                else:
+                    start_date = datetime(2010, 1, 1)
+
+                service = get_benchmark_service()
+                prices, err = service.get_benchmark_history(
+                    benchmark_key,
+                    start_date.strftime('%Y-%m-%d'),
+                    end_date.strftime('%Y-%m-%d')
+                )
+
+                if err:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'error': err}).encode('utf-8'))
+                else:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        'benchmark': benchmark_key,
+                        'prices': prices,
+                        'period': period
+                    }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting benchmark history: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # ==================== DIVIDENDS API ====================
+
+        # GET /api/dividends/calendar - Get dividend calendar for portfolio
+        if q.get('action') == ['dividends_calendar']:
+            try:
+                months = int(q.get('months', ['3'])[0])
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(err or "Could not load portfolio")
+                positions = []
+                for _, row in df.iterrows():
+                    positions.append({
+                        'ticker': row.get('ticker', ''),
+                        'name': row.get('name', row.get('ticker', '')),
+                        'quantity': row.get('qty', row.get('quantity', 0)),
+                        'price': row.get('price_eur', row.get('price', 0)),
+                        'cost': row.get('avg_cost_eur', row.get('cost', 0))
+                    })
+
+                service = get_dividends_service()
+                calendar = service.get_dividend_calendar(positions, months)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(calendar).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting dividend calendar: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/dividends/income - Get projected annual income
+        if q.get('action') == ['dividends_income']:
+            try:
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(err or "Could not load portfolio")
+                positions = []
+                for _, row in df.iterrows():
+                    positions.append({
+                        'ticker': row.get('ticker', ''),
+                        'name': row.get('name', row.get('ticker', '')),
+                        'quantity': row.get('qty', row.get('quantity', 0)),
+                        'price': row.get('price_eur', row.get('price', 0)),
+                        'cost': row.get('avg_cost_eur', row.get('cost', 0))
+                    })
+
+                service = get_dividends_service()
+                income = service.project_annual_income(positions)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(income).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting dividend income: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/dividends/ticker - Get dividend history for a ticker
+        if q.get('action') == ['dividends_ticker']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+                if not ticker:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'error': 'Ticker required'}).encode('utf-8'))
+                    return
+
+                years = int(q.get('years', ['5'])[0])
+                service = get_dividends_service()
+                info = service.get_dividend_history(ticker, years)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(info.to_dict()).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting dividend history for ticker: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/dividends/upcoming - Get upcoming dividends for portfolio
+        if q.get('action') == ['dividends_upcoming']:
+            try:
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(err or "Could not load portfolio")
+                positions = []
+                for _, row in df.iterrows():
+                    positions.append({
+                        'ticker': row.get('ticker', ''),
+                        'name': row.get('name', row.get('ticker', '')),
+                        'quantity': row.get('qty', row.get('quantity', 0))
+                    })
+
+                service = get_dividends_service()
+                upcoming = service.get_upcoming_dividends(positions)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'upcoming': upcoming}).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting upcoming dividends: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+        # ==================== TRANSACTIONS & POSITIONS API ====================
+
+        # GET /api/transactions - List all transactions with optional filters
+        if q.get('action') == ['get_transactions']:
+            try:
+                ticker = q.get('ticker', [None])[0]
+                txn_type = q.get('type', [None])[0]
+                start_date = q.get('start_date', [None])[0]
+                end_date = q.get('end_date', [None])[0]
+
+                manager = get_position_manager()
+                transactions = manager.get_transactions(ticker, txn_type, start_date, end_date)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': [t.to_dict() for t in transactions]
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting transactions: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/positions - Get all open positions
+        if q.get('action') == ['get_positions']:
+            try:
+                # Get price and name data from portfolio
+                df, err = load_portfolio()
+                price_data = {}
+                name_data = {}
+                if df is not None:
+                    for _, row in df.iterrows():
+                        ticker = row.get('ticker', '').upper()
+                        if ticker:
+                            price_data[ticker] = float(row.get('price_eur', 0))
+                            name_data[ticker] = row.get('name', ticker)
+
+                manager = get_position_manager()
+                summary = manager.get_all_positions(price_data, name_data)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': [p.to_dict() for p in summary.open_positions]
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting positions: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/positions/closed - Get all closed positions
+        if q.get('action') == ['get_closed_positions']:
+            try:
+                df, err = load_portfolio()
+                price_data = {}
+                name_data = {}
+                if df is not None:
+                    for _, row in df.iterrows():
+                        ticker = row.get('ticker', '').upper()
+                        if ticker:
+                            price_data[ticker] = float(row.get('price_eur', 0))
+                            name_data[ticker] = row.get('name', ticker)
+
+                manager = get_position_manager()
+                summary = manager.get_all_positions(price_data, name_data)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': [p.to_dict() for p in summary.closed_positions]
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting closed positions: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/positions/<ticker> - Get position detail with transactions
+        if q.get('action') == ['get_position_detail']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+                if not ticker:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': 'Ticker required'}).encode('utf-8'))
+                    return
+
+                # Get price from portfolio
+                df, err = load_portfolio()
+                price = 0
+                name = ticker
+                if df is not None:
+                    ticker_upper = ticker.upper()
+                    match = df[df['ticker'].str.upper() == ticker_upper]
+                    if not match.empty:
+                        price = float(match.iloc[0].get('price_eur', 0))
+                        name = match.iloc[0].get('name', ticker)
+
+                manager = get_position_manager()
+                position = manager.get_position(ticker, price, name)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                result = position.to_dict()
+                result['transactions'] = [t.to_dict() for t in position.transactions]
+                self.wfile.write(json.dumps({'success': True, 'data': result}).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting position detail: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/pnl/summary - Get P&L summary
+        if q.get('action') == ['get_pnl_summary']:
+            try:
+                df, err = load_portfolio()
+                price_data = {}
+                name_data = {}
+                if df is not None:
+                    for _, row in df.iterrows():
+                        ticker = row.get('ticker', '').upper()
+                        if ticker:
+                            price_data[ticker] = float(row.get('price_eur', 0))
+                            name_data[ticker] = row.get('name', ticker)
+
+                manager = get_position_manager()
+                summary = manager.get_all_positions(price_data, name_data)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': summary.to_dict()
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting P&L summary: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/pnl/history - Get P&L history for chart
+        if q.get('action') == ['get_pnl_history']:
+            try:
+                start_date = q.get('start_date', [None])[0]
+                end_date = q.get('end_date', [None])[0]
+
+                manager = get_position_manager()
+                history = manager.get_pnl_history(start_date, end_date)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': history
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting P&L history: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/transactions/add - Add transaction via GET (for simple forms)
+        if q.get('action') == ['add_transaction']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+                txn_type = q.get('type', ['BUY'])[0]
+                date_str = q.get('date', [datetime.now().strftime('%Y-%m-%d')])[0]
+                quantity = float(q.get('quantity', [0])[0])
+                price = float(q.get('price', [0])[0])
+                fees = float(q.get('fees', [0])[0])
+                notes = urllib.parse.unquote(q.get('notes', [''])[0])
+
+                if not ticker:
+                    raise ValueError("Ticker required")
+
+                manager = get_position_manager()
+                txn, err = manager.add_transaction(
+                    ticker=ticker,
+                    txn_type=txn_type,
+                    date_str=date_str,
+                    quantity=quantity,
+                    price=price,
+                    fees=fees,
+                    notes=notes
+                )
+
+                if err:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': err}).encode('utf-8'))
+                else:
+                    # Also update portfolio.xlsx to keep in sync
+                    try:
+                        df, load_err = load_portfolio()
+                        if df is not None and not load_err:
+                            mask = df['ticker'].str.upper() == ticker.upper()
+                            if mask.any():
+                                idx = df[mask].index[0]
+                                current_qty = float(df.loc[idx, 'qty'] or 0)
+                                current_cost = float(df.loc[idx, 'avg_cost_eur'] or 0)
+
+                                if txn_type == 'SELL':
+                                    # Reduce quantity
+                                    new_qty = max(0, current_qty - quantity)
+                                    df.loc[idx, 'qty'] = new_qty
+                                    log.info(f"Portfolio updated: {ticker} qty {current_qty} -> {new_qty}")
+                                elif txn_type == 'BUY':
+                                    # Increase quantity and recalculate avg cost
+                                    new_qty = current_qty + quantity
+                                    # Weighted average cost
+                                    total_old = current_qty * current_cost
+                                    total_new = quantity * price
+                                    new_avg_cost = (total_old + total_new) / new_qty if new_qty > 0 else price
+                                    df.loc[idx, 'qty'] = new_qty
+                                    df.loc[idx, 'avg_cost_eur'] = new_avg_cost
+                                    log.info(f"Portfolio updated: {ticker} qty {current_qty} -> {new_qty}, cost {current_cost:.2f} -> {new_avg_cost:.2f}")
+
+                                save_portfolio(df)
+                    except Exception as sync_err:
+                        log.warning(f"Could not sync portfolio.xlsx: {sync_err}")
+
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        'success': True,
+                        'data': txn.to_dict()
+                    }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error adding transaction: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/transactions/delete - Delete transaction
+        if q.get('action') == ['delete_transaction']:
+            try:
+                txn_id = q.get('id', [''])[0]
+                if not txn_id:
+                    raise ValueError("Transaction ID required")
+
+                manager = get_position_manager()
+                success, err = manager.delete_transaction(txn_id)
+
+                if err:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': err}).encode('utf-8'))
+                else:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': True}).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error deleting transaction: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /api/transactions/qty - Get current quantity for a ticker (for sell validation)
+        if q.get('action') == ['get_ticker_qty']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+                if not ticker:
+                    raise ValueError("Ticker required")
+
+                manager = get_position_manager()
+                qty = manager._get_current_qty(ticker)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': {'ticker': ticker.upper(), 'quantity': qty}
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting ticker quantity: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # ═══ PDF REPORT GENERATION ═══
+
+        # GET /?action=generate_report - Generate PDF monthly report
+        if q.get('action') == ['generate_report']:
+            try:
+                month = int(q.get('month', [datetime.now().month])[0])
+                year = int(q.get('year', [datetime.now().year])[0])
+
+                service = get_pdf_report_service()
+                pdf_bytes, filename = service.generate_report(month, year)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/pdf')
+                self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+                self.send_header('Content-Length', str(len(pdf_bytes)))
+                self.end_headers()
+                self.wfile.write(pdf_bytes)
+            except Exception as e:
+                log.error(f"Error generating report: {e}")
+                import traceback
+                traceback.print_exc()
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=get_latest_report - Get the most recent report
+        if q.get('action') == ['get_latest_report']:
+            try:
+                service = get_pdf_report_service()
+                pdf_bytes, filename = service.get_latest_report()
+
+                if pdf_bytes and filename:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/pdf')
+                    self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+                    self.send_header('Content-Length', str(len(pdf_bytes)))
+                    self.end_headers()
+                    self.wfile.write(pdf_bytes)
+                else:
+                    self.send_response(404)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': 'No reports found'}).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting latest report: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=list_reports - List all available reports
+        if q.get('action') == ['list_reports']:
+            try:
+                service = get_pdf_report_service()
+                reports = service.list_reports()
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': True, 'data': reports}).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error listing reports: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # ===================== INSIDER API ROUTES =====================
+
+        # GET /?action=insider_transactions&ticker=MC - Get insider transactions for a ticker
+        if q.get('action') == ['insider_transactions']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+                months = int(q.get('months', ['12'])[0])
+
+                if not ticker:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': 'Missing ticker parameter'}).encode('utf-8'))
+                    return
+
+                service = get_insider_service()
+                transactions = service.get_insider_transactions(ticker, months)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': {
+                        'ticker': ticker,
+                        'transactions': [t.to_dict() for t in transactions]
+                    }
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error fetching insider transactions: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=insider_sentiment&ticker=MC - Get insider sentiment for a ticker
+        if q.get('action') == ['insider_sentiment']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+                months = int(q.get('months', ['12'])[0])
+
+                if not ticker:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': 'Missing ticker parameter'}).encode('utf-8'))
+                    return
+
+                service = get_insider_service()
+                sentiment = service.calculate_insider_sentiment(ticker, months)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': sentiment.to_dict()
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error calculating insider sentiment: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=insider_feed&scope=portfolio - Get insider feed
+        if q.get('action') == ['insider_feed']:
+            try:
+                scope = q.get('scope', ['portfolio'])[0]
+                limit = int(q.get('limit', ['50'])[0])
+
+                # Get tickers based on scope
+                tickers = []
+                if scope == 'portfolio':
+                    df, _ = load_portfolio()
+                    if df is not None and 'ticker' in df.columns:
+                        tickers = df['ticker'].str.upper().tolist()
+                elif scope == 'watchlist':
+                    watchlist = load_watchlist()
+                    tickers = [w.get('ticker', '').upper() for w in watchlist if w.get('ticker')]
+                elif scope == 'all':
+                    # Both portfolio and watchlist
+                    df, _ = load_portfolio()
+                    if df is not None and 'ticker' in df.columns:
+                        tickers = df['ticker'].str.upper().tolist()
+                    watchlist = load_watchlist()
+                    tickers.extend([w.get('ticker', '').upper() for w in watchlist if w.get('ticker')])
+                    tickers = list(set(tickers))
+
+                service = get_insider_service()
+                transactions = service.get_insider_feed(tickers, limit=limit)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': {
+                        'scope': scope,
+                        'count': len(transactions),
+                        'transactions': [t.to_dict() for t in transactions]
+                    }
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error fetching insider feed: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=insider_alerts - Get recent insider alerts
+        if q.get('action') == ['insider_alerts']:
+            try:
+                # Get all tickers from portfolio and watchlist
+                tickers = []
+                ticker_names = {}
+
+                df, _ = load_portfolio()
+                if df is not None and 'ticker' in df.columns:
+                    for _, row in df.iterrows():
+                        t = row.get('ticker', '').upper()
+                        if t:
+                            tickers.append(t)
+                            ticker_names[t] = row.get('name', t)
+
+                watchlist = load_watchlist()
+                for w in watchlist:
+                    t = w.get('ticker', '').upper()
+                    if t:
+                        tickers.append(t)
+                        if t not in ticker_names:
+                            ticker_names[t] = w.get('name', t)
+
+                tickers = list(set(tickers))
+
+                service = get_insider_service()
+                alerts = service.detect_alerts(tickers, ticker_names)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': {
+                        'count': len(alerts),
+                        'alerts': [a.to_dict() for a in alerts]
+                    }
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error detecting insider alerts: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=insider_score&ticker=MC - Get insider score adjustment
+        if q.get('action') == ['insider_score']:
+            try:
+                ticker = q.get('ticker', [''])[0]
+
+                if not ticker:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'success': False, 'error': 'Missing ticker parameter'}).encode('utf-8'))
+                    return
+
+                service = get_insider_service()
+                adjustment = service.get_insider_score_adjustment(ticker)
+                sentiment = service.calculate_insider_sentiment(ticker, months=6)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': {
+                        'ticker': ticker,
+                        'score_adjustment': adjustment,
+                        'recent_buy_days': sentiment.recent_buy_days,
+                        'is_cluster_buying': sentiment.is_cluster_buying,
+                        'sentiment_ratio': sentiment.sentiment_ratio
+                    }
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error calculating insider score: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # ===================== END INSIDER API ROUTES =====================
+
+        # ===================== REBALANCING API ROUTES =====================
+
+        # GET /?action=rebalance_check - Check portfolio for imbalances
+        if q.get('action') == ['rebalance_check']:
+            try:
+                service = get_rebalancing_service()
+
+                # Load portfolio from Excel
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(f"Could not load portfolio: {err}")
+
+                # Build positions list with metrics
+                positions = []
+                total_value = 0
+
+                for _, row in df.iterrows():
+                    qty = float(row.get('qty', 0) or 0)
+                    if qty <= 0:
+                        continue
+
+                    price = float(row.get('price_eur', 0) or 0)
+                    value = price * qty
+                    total_value += value
+
+                    # Get PE (try multiple columns)
+                    pe = None
+                    for col in ['pe', 'pe_ttm', 'trailing_pe']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                pe = float(val)
+                                break
+
+                    # Get ROE
+                    roe = None
+                    for col in ['roe', 'roe_ttm']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                roe = float(val)
+                                if -1 < roe < 1:
+                                    roe = roe * 100
+                                break
+
+                    pos_data = {
+                        'ticker': str(row.get('ticker', '')),
+                        'name': str(row.get('name', '')),
+                        'value': value,
+                        'price': price,
+                        'sector': str(row.get('sector', 'Other') or 'Other'),
+                        'pe': pe,
+                        'roe': roe,
+                        'higgons_score': int(row.get('score_higgons', row.get('higgons_score', 5)) or 5),
+                        'verdict': str(row.get('verdict', '') or '')
+                    }
+                    positions.append(pos_data)
+
+                # Add weights
+                for pos in positions:
+                    pos['weight'] = (pos['value'] / total_value * 100) if total_value > 0 else 0
+
+                imbalances = service.check_portfolio_balance(positions, total_value)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': {
+                        'total_value': round(total_value, 0),
+                        'num_positions': len(positions),
+                        'imbalances': [i.to_dict() for i in imbalances],
+                        'is_balanced': len(imbalances) == 0
+                    }
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error checking rebalance: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=rebalance_propose - Get trade proposals
+        if q.get('action') == ['rebalance_propose']:
+            try:
+                method = q.get('method', ['equal'])[0]
+                service = get_rebalancing_service()
+
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(f"Could not load portfolio: {err}")
+
+                positions = []
+                total_value = 0
+
+                for _, row in df.iterrows():
+                    qty = float(row.get('qty', 0) or 0)
+                    if qty <= 0:
+                        continue
+
+                    price = float(row.get('price_eur', 0) or 0)
+                    value = price * qty
+                    total_value += value
+
+                    pos_data = {
+                        'ticker': str(row.get('ticker', '')),
+                        'name': str(row.get('name', '')),
+                        'value': value,
+                        'price': price,
+                        'sector': str(row.get('sector', 'Other') or 'Other'),
+                        'higgons_score': int(row.get('score_higgons', row.get('higgons_score', 5)) or 5)
+                    }
+                    positions.append(pos_data)
+
+                for pos in positions:
+                    pos['weight'] = (pos['value'] / total_value * 100) if total_value > 0 else 0
+
+                target_weights = service.calculate_target_weights(positions, method)
+                proposals = service.propose_rebalancing(positions, target_weights, total_value)
+
+                total_buy = sum(t.trade_value for t in proposals if t.trade_value > 0)
+                total_sell = sum(abs(t.trade_value) for t in proposals if t.trade_value < 0)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': {
+                        'method': method,
+                        'total_value': round(total_value, 0),
+                        'proposals': [p.to_dict() for p in proposals],
+                        'total_buy': round(total_buy, 0),
+                        'total_sell': round(total_sell, 0),
+                        'net_flow': round(total_buy - total_sell, 0)
+                    }
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error proposing rebalance: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=rebalance_analyze - Full portfolio analysis
+        if q.get('action') == ['rebalance_analyze']:
+            try:
+                service = get_rebalancing_service()
+
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(f"Could not load portfolio: {err}")
+
+                positions = []
+                total_value = 0
+
+                for _, row in df.iterrows():
+                    qty = float(row.get('qty', 0) or 0)
+                    if qty <= 0:
+                        continue
+
+                    price = float(row.get('price_eur', 0) or 0)
+                    value = price * qty
+                    total_value += value
+
+                    pe = None
+                    for col in ['pe', 'pe_ttm', 'trailing_pe']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                pe = float(val)
+                                break
+
+                    roe = None
+                    for col in ['roe', 'roe_ttm']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                roe = float(val)
+                                if -1 < roe < 1:
+                                    roe = roe * 100
+                                break
+
+                    pos_data = {
+                        'ticker': str(row.get('ticker', '')),
+                        'name': str(row.get('name', '')),
+                        'value': value,
+                        'price': price,
+                        'sector': str(row.get('sector', 'Other') or 'Other'),
+                        'pe': pe,
+                        'roe': roe,
+                        'higgons_score': int(row.get('score_higgons', row.get('higgons_score', 5)) or 5),
+                        'verdict': str(row.get('verdict', '') or '')
+                    }
+                    positions.append(pos_data)
+
+                for pos in positions:
+                    pos['weight'] = (pos['value'] / total_value * 100) if total_value > 0 else 0
+
+                result = service.analyze_portfolio(positions, total_value)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': result.to_dict()
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error analyzing portfolio: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # GET /?action=rebalance_simulate - Simulate trade impact
+        if q.get('action') == ['rebalance_simulate']:
+            try:
+                method = q.get('method', ['equal'])[0]
+                service = get_rebalancing_service()
+
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(f"Could not load portfolio: {err}")
+
+                positions = []
+                total_value = 0
+
+                for _, row in df.iterrows():
+                    qty = float(row.get('qty', 0) or 0)
+                    if qty <= 0:
+                        continue
+
+                    price = float(row.get('price_eur', 0) or 0)
+                    value = price * qty
+                    total_value += value
+
+                    pos_data = {
+                        'ticker': str(row.get('ticker', '')),
+                        'name': str(row.get('name', '')),
+                        'value': value,
+                        'price': price,
+                        'sector': str(row.get('sector', 'Other') or 'Other'),
+                        'higgons_score': int(row.get('score_higgons', row.get('higgons_score', 5)) or 5)
+                    }
+                    positions.append(pos_data)
+
+                for pos in positions:
+                    pos['weight'] = (pos['value'] / total_value * 100) if total_value > 0 else 0
+
+                target_weights = service.calculate_target_weights(positions, method)
+                proposals = service.propose_rebalancing(positions, target_weights, total_value)
+                simulation = service.simulate_trades(positions, proposals)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': simulation
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error simulating rebalance: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # ===================== END REBALANCING API ROUTES =====================
+
+        # ===================== HEATMAP API ROUTES =====================
+
+        # GET /?action=heatmap_data - Get portfolio data for treemap visualization
+        if q.get('action') == ['heatmap_data']:
+            try:
+                metric = q.get('metric', ['perf_day'])[0]  # perf_day, perf_ytd, score, pe
+                grouping = q.get('grouping', ['sector'])[0]  # sector, country, flat
+
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(f"Could not load portfolio: {err}")
+
+                positions = []
+                total_value = 0
+
+                for _, row in df.iterrows():
+                    qty = float(row.get('qty', 0) or 0)
+                    if qty <= 0:
+                        continue
+
+                    price = float(row.get('price_eur', 0) or 0)
+                    value = price * qty
+                    total_value += value
+
+                    # Get cost for P&L calculation
+                    cost = float(row.get('avg_cost_eur', 0) or 0)
+                    total_cost = cost * qty
+                    pnl_pct = ((value / total_cost) - 1) * 100 if total_cost > 0 else 0
+
+                    # Get daily change
+                    change_pct = float(row.get('change_pct', row.get('pct_change', 0)) or 0)
+                    # Convert from decimal if needed
+                    if -1 < change_pct < 1 and change_pct != 0:
+                        change_pct = change_pct * 100
+
+                    # Get YTD change (use pnl_pct as proxy if not available)
+                    ytd_pct = float(row.get('ytd_pct', row.get('perf_ytd', pnl_pct)) or pnl_pct)
+                    if -1 < ytd_pct < 1 and ytd_pct != 0:
+                        ytd_pct = ytd_pct * 100
+
+                    # Get PE
+                    pe = None
+                    for col in ['pe', 'pe_ttm', 'trailing_pe']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                pe = float(val)
+                                break
+
+                    # Get ROE
+                    roe = None
+                    for col in ['roe', 'roe_ttm', 'returnOnEquity']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                roe = float(val)
+                                if -1 < roe < 1:
+                                    roe = roe * 100
+                                break
+
+                    # Get Gearing (debt/equity)
+                    gearing = None
+                    for col in ['gearing', 'debt_to_equity', 'debtToEquity']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                gearing = float(val)
+                                # Convert from decimal to percentage if needed
+                                if gearing < 5 and gearing > 0:
+                                    gearing = gearing * 100
+                                break
+
+                    # Get P/CF (Price to Cash Flow)
+                    pcf = None
+                    for col in ['pcf', 'price_to_cashflow']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                pcf = float(val)
+                                break
+
+                    # Get Momentum (prefer 6M, fallback to 12M)
+                    mom_6m = None
+                    for col in ['mom_6m', 'momentum_6m', 'perf_6m', 'momentum_12m', 'mom_12m', 'perf_12m']:
+                        if col in df.columns:
+                            val = row.get(col)
+                            if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                                mom_6m = float(val)
+                                if -1 < mom_6m < 1:
+                                    mom_6m = mom_6m * 100
+                                break
+
+                    # Calculate Higgons score dynamically (max 13 pts, scaled to 10)
+                    score = 0
+                    # P/E score (lower is better): < 8: 3pts, < 10: 2pts, < 12: 1pt
+                    if pe is not None and pe > 0:
+                        if pe < 8:
+                            score += 3
+                        elif pe < 10:
+                            score += 2
+                        elif pe < 12:
+                            score += 1
+                    # P/CF score (lower is better): <= 6: 3pts, <= 8: 2pts, <= 10: 1pt
+                    if pcf is not None and pcf > 0:
+                        if pcf <= 6:
+                            score += 3
+                        elif pcf <= 8:
+                            score += 2
+                        elif pcf <= 10:
+                            score += 1
+                    # ROE score (higher is better): > 15%: 3pts, > 12%: 2pts, > 10%: 1pt
+                    if roe is not None:
+                        if roe > 15:
+                            score += 3
+                        elif roe > 12:
+                            score += 2
+                        elif roe > 10:
+                            score += 1
+                    # Gearing score (lower is better): < 20%: 2pts, < 50%: 1pt
+                    if gearing is not None:
+                        if gearing < 20:
+                            score += 2
+                        elif gearing < 50:
+                            score += 1
+                    # Momentum score: > 20%: 2pts, > 0%: 1pt
+                    if mom_6m is not None:
+                        if mom_6m > 20:
+                            score += 2
+                        elif mom_6m > 0:
+                            score += 1
+                    # Scale to 10 (max is now 13)
+                    score = min(round(score * 10 / 13), 10)
+
+                    pos = {
+                        'ticker': str(row.get('ticker', '')),
+                        'name': str(row.get('name', '')),
+                        'sector': str(row.get('sector', 'Other') or 'Other'),
+                        'country': str(row.get('country', 'Unknown') or 'Unknown'),
+                        'value': round(value, 0),
+                        'price': round(price, 2),
+                        'qty': qty,
+                        'pnl_pct': round(pnl_pct, 2),
+                        'change_pct': round(change_pct, 2),
+                        'ytd_pct': round(ytd_pct, 2),
+                        'pe': round(pe, 1) if pe else None,
+                        'pcf': round(pcf, 1) if pcf else None,
+                        'roe': round(roe, 1) if roe else None,
+                        'score': score
+                    }
+                    positions.append(pos)
+
+                # Calculate weights
+                for pos in positions:
+                    pos['weight'] = round((pos['value'] / total_value * 100), 2) if total_value > 0 else 0
+
+                # Group positions
+                grouped = {}
+                if grouping == 'flat':
+                    grouped = {'All': positions}
+                else:
+                    group_key = grouping  # 'sector' or 'country'
+                    for pos in positions:
+                        group = pos.get(group_key, 'Other')
+                        if group not in grouped:
+                            grouped[group] = []
+                        grouped[group].append(pos)
+
+                # Calculate group totals
+                groups_data = []
+                for group_name, group_positions in grouped.items():
+                    group_value = sum(p['value'] for p in group_positions)
+                    group_weight = (group_value / total_value * 100) if total_value > 0 else 0
+
+                    # Calculate weighted average performance for group
+                    if group_value > 0:
+                        weighted_perf = sum(p['change_pct'] * p['value'] for p in group_positions) / group_value
+                    else:
+                        weighted_perf = 0
+
+                    groups_data.append({
+                        'name': group_name,
+                        'value': round(group_value, 0),
+                        'weight': round(group_weight, 2),
+                        'perf': round(weighted_perf, 2),
+                        'positions': sorted(group_positions, key=lambda x: x['value'], reverse=True)
+                    })
+
+                # Sort groups by value
+                groups_data.sort(key=lambda x: x['value'], reverse=True)
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'success': True,
+                    'data': {
+                        'total_value': round(total_value, 0),
+                        'metric': metric,
+                        'grouping': grouping,
+                        'groups': groups_data
+                    }
+                }).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Error getting heatmap data: {e}")
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'success': False, 'error': str(e)}).encode('utf-8'))
+            return
+
+        # ===================== END HEATMAP API ROUTES =====================
 
         if 'download' in q:
             fp = urllib.parse.unquote(q['download'][0])
@@ -11880,9 +16087,19 @@ class Handler(SimpleHTTPRequestHandler):
 
         if p.path in ('/screener', '/screener/'):
 
-            screener_html = 'screener_v2.html'
+            # Try multiple locations for screener_v2.html
+            possible_paths = [
+                os.path.join(os.path.dirname(__file__), 'templates', 'screener_v2.html'),
+                os.path.join(os.path.dirname(os.path.dirname(__file__)), 'screener_v2.html'),
+                'screener_v2.html',
+            ]
+            screener_html = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    screener_html = path
+                    break
 
-            if os.path.exists(screener_html):
+            if screener_html:
 
                 self.send_response(200)
 

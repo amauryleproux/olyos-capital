@@ -35,9 +35,23 @@ env/
 data/*.xlsx
 data/*.json
 data/backtest_cache/
+data/benchmark_cache/
+
+# Cache files everywhere
+**/backtest_cache/
+**/benchmark_cache/
+**/screener_cache*.json
+**/dividend_cache*.json
 
 # But keep example files
 !data/.gitkeep
+
+# Generated reports
+docs/reports/*.pdf
+reports/*.pdf
+
+# Windows artifacts
+nul
 
 # Logs
 *.log

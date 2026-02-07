@@ -1,0 +1,40 @@
+<svg width="520" height="130" viewBox="0 0 520 130" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="star4" viewBox="0 0 20 20"><path d="M10,0 L12,7.5 L20,10 L12,12.5 L10,20 L8,12.5 L0,10 L8,7.5 Z"/></symbol>
+    <symbol id="sparkle" viewBox="0 0 20 20"><path d="M10,0 L10.8,8.2 L20,10 L10.8,11.8 L10,20 L9.2,11.8 L0,10 L9.2,8.2 Z"/></symbol>
+    <symbol id="diamond" viewBox="0 0 20 20"><path d="M10,0 L14,10 L10,20 L6,10 Z"/></symbol>
+  </defs>
+
+  <g transform="translate(16, 12)">
+    <!-- Orbit rings -->
+    <circle cx="44" cy="52" r="48" fill="none" stroke="#c9a84c" stroke-width="0.4" opacity="0.08"/>
+    <circle cx="44" cy="52" r="34" fill="none" stroke="#c9a84c" stroke-width="0.3" opacity="0.06"/>
+
+    <!-- Constellation lines -->
+    <line x1="42" y1="16" x2="20" y2="42" stroke="#c9a84c" stroke-width="0.8" opacity="0.35"/>
+    <line x1="20" y1="42" x2="50" y2="60" stroke="#c9a84c" stroke-width="0.8" opacity="0.35"/>
+    <line x1="50" y1="60" x2="74" y2="36" stroke="#c9a84c" stroke-width="0.8" opacity="0.35"/>
+    <line x1="74" y1="36" x2="62" y2="82" stroke="#c9a84c" stroke-width="0.8" opacity="0.35"/>
+    <line x1="42" y1="16" x2="74" y2="36" stroke="#c9a84c" stroke-width="0.5" opacity="0.2"/>
+    <line x1="20" y1="42" x2="10" y2="76" stroke="#c9a84c" stroke-width="0.5" opacity="0.2"/>
+    <line x1="50" y1="60" x2="62" y2="82" stroke="#c9a84c" stroke-width="0.5" opacity="0.2"/>
+
+    <!-- Stars -->
+    <use href="#star4" x="38" y="8" width="16" height="16" fill="#c9a84c" opacity="0.9"/>
+    <use href="#star4" x="14" y="36" width="12" height="12" fill="#c9a84c" opacity="0.8"/>
+    <use href="#sparkle" x="40" y="50" width="20" height="20" fill="#c9a84c" opacity="0.95"/>
+    <use href="#star4" x="67" y="29" width="14" height="14" fill="#c9a84c" opacity="0.85"/>
+    <use href="#sparkle" x="56" y="76" width="10" height="10" fill="#c9a84c" opacity="0.55"/>
+    <use href="#diamond" x="6" y="72" width="8" height="8" fill="#c9a84c" opacity="0.4"/>
+
+    <!-- Tiny background sparkles -->
+    <use href="#sparkle" x="4" y="10" width="4" height="4" fill="#f0e6c8" opacity="0.2"/>
+    <use href="#sparkle" x="80" y="14" width="3" height="3" fill="#f0e6c8" opacity="0.15"/>
+    <use href="#sparkle" x="84" y="68" width="3.5" height="3.5" fill="#f0e6c8" opacity="0.18"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="130" y="62" font-family="'Cormorant Garamond', Georgia, serif" font-size="44" font-weight="500" fill="#e8e8f4" letter-spacing="6">OLYOS</text>
+  <text x="130" y="90" font-family="'DM Sans', Helvetica, sans-serif" font-size="12" font-weight="400" fill="#6a6a92" letter-spacing="10">CAPITAL</text>
+  <line x1="130" y1="70" x2="290" y2="70" stroke="#c9a84c" stroke-width="0.4" opacity="0.2"/>
+</svg>

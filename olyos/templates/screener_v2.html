@@ -376,6 +376,13 @@ tr:hover{background:#0f0f1a}
       </div>
       <div class="slider-group">
         <div class="slider-header">
+          <span class="slider-label">P/CF Maximum</span>
+          <span class="slider-value" id="pcf-display" style="color:var(--amber)">≤ 15x</span>
+        </div>
+        <input type="range" id="sl-pcf" min="3" max="30" step="0.5" value="15" oninput="onFilterChange()">
+      </div>
+      <div class="slider-group">
+        <div class="slider-header">
           <span class="slider-label">ROE Minimum</span>
           <span class="slider-value" id="roe-display" style="color:var(--amber)">≥ 8%</span>
         </div>
@@ -541,7 +548,12 @@ let RAW_DATA = [];
 let FILTERED = [];
 let WATCHLIST = [];
 let SORT = { col: 'score', dir: 'desc' };
-let UNIVERSE = 'france';
+// Initialize universe from URL parameter if present (e.g., ?scope=europe)
+let UNIVERSE = (() => {
+  const params = new URLSearchParams(window.location.search);
+  const scope = params.get('scope');
+  return (scope === 'europe') ? 'europe' : 'france';
+})();
 let _renderRAF = null; // requestAnimationFrame handle for batch rendering
 let _loadStart = 0;
 
@@ -843,10 +855,10 @@ async function refreshFromServer(isBackground) {
     // Add cache buster to force fresh data
     const cacheBuster = isBackground ? '' : `&_t=${Date.now()}`;
 
-    // Attempt 1: JSON API endpoint
+    // Attempt 1: JSON API endpoint with current universe scope
     try {
-      const resp = await fetch(`/?action=screener_json${cacheBuster}`, {
-        signal: AbortSignal.timeout(30000),
+      const resp = await fetch(`/?action=screener_json&scope=${UNIVERSE}${cacheBuster}`, {
+        signal: AbortSignal.timeout(15000), // 15s should be enough for cached data
         cache: 'no-cache',
         headers: { 'Cache-Control': 'no-cache' }
       });
@@ -1086,6 +1098,7 @@ window.debugData = function() {
 // ═══════════════════════════════════════════════════════════════
 function onFilterChange() {
   const peMax = parseFloat(document.getElementById('sl-pe').value);
+  const pcfMax = parseFloat(document.getElementById('sl-pcf').value);
   const roeMin = parseFloat(document.getElementById('sl-roe').value);
   const debtMax = parseFloat(document.getElementById('sl-debt').value);
   const scoreMin = parseFloat(document.getElementById('sl-score').value);
@@ -1097,6 +1110,11 @@ function onFilterChange() {
   const peCol = peMax <= 10 ? 'var(--green)' : peMax <= 12 ? 'var(--amber)' : 'var(--orange)';
   document.getElementById('pe-display').innerHTML = peMax <= 10 ? `≤ ${peMax}x ★` : `≤ ${peMax}x`;
   document.getElementById('pe-display').style.color = peCol;
+
+  // P/CF display (green if ≤8, amber if ≤10, orange otherwise)
+  const pcfCol = pcfMax <= 8 ? 'var(--green)' : pcfMax <= 10 ? 'var(--amber)' : 'var(--orange)';
+  document.getElementById('pcf-display').innerHTML = pcfMax <= 8 ? `≤ ${pcfMax}x ★` : `≤ ${pcfMax}x`;
+  document.getElementById('pcf-display').style.color = pcfCol;
 
   const roeCol = roeMin >= 15 ? 'var(--green)' : roeMin >= 10 ? 'var(--amber)' : 'var(--yellow)';
   document.getElementById('roe-display').innerHTML = roeMin >= 15 ? `≥ ${roeMin}% ★` : `≥ ${roeMin}%`;
@@ -1115,6 +1133,7 @@ function onFilterChange() {
   FILTERED = RAW_DATA.filter(s => {
     if (isFrance && s.country !== 'FR' && s.country !== 'France') return false;
     if (s.pe && s.pe > peMax) return false;
+    if (s.pcf && s.pcf > pcfMax) return false;  // P/CF filter
     if (s._roe_pct != null && s._roe_pct < roeMin) return false;
     if (s._debt_pct != null && s._debt_pct > debtMax) return false;
     if (s._score < scoreMin) return false;
@@ -1134,8 +1153,8 @@ function onFilterChange() {
 
   FILTERED = FILTERED.slice(0, limit);
 
-  document.getElementById('criteria-summary').innerHTML = 
-    `PE <${peMax} • ROE >${roeMin}% • Debt <${debtMax}%` + 
+  document.getElementById('criteria-summary').innerHTML =
+    `PE <${peMax} • P/CF <${pcfMax} • ROE >${roeMin}% • Debt <${debtMax}%` +
     (scoreMin > 0 ? ` • Score ≥${scoreMin}` : '') +
     (sector ? ` • ${sector}` : '');
 
@@ -1147,6 +1166,7 @@ function getVal(s, col) {
   switch(col) {
     case 'score': return s._score;
     case 'pe': return s.pe;
+    case 'pcf': return s.pcf;
     case 'roe': return s._roe_pct;
     case 'debt': return s._debt_pct;
     case 'margin': return s._pm_pct;
@@ -1194,6 +1214,7 @@ const COLUMNS = [
   { key: 'score', label: 'Score', cls: 'c', sortable: true },
   { key: 'class', label: 'Class.', cls: 'c', sortable: false },
   { key: 'pe', label: 'P/E', cls: 'r', sortable: true },
+  { key: 'pcf', label: 'P/CF', cls: 'r', sortable: true },
   { key: 'roe', label: 'ROE', cls: 'r', sortable: true },
   { key: 'debt', label: 'Debt%', cls: 'r', sortable: true },
   { key: 'margin', label: 'Marge', cls: 'r', sortable: true },
@@ -1250,6 +1271,12 @@ function buildRowHTML(s, i) {
   const sigStyle = sigMap[s.signal] || sigMap.NEUTRE;
   const peColor = pe ? (pe <= 10 ? 'var(--green)' : pe <= 12 ? 'var(--yellow)' : 'var(--text)') : 'var(--text-ghost)';
   const peWeight = pe && pe <= 10 ? 700 : 400;
+
+  // P/CF color coding: ≤8 excellent (green), ≤12 correct (yellow), >12 expensive (red)
+  const pcf = s.pcf || s.price_to_cashflow;
+  const pcfColor = pcf ? (pcf <= 8 ? 'var(--green)' : pcf <= 12 ? 'var(--yellow)' : 'var(--red)') : 'var(--text-ghost)';
+  const pcfWeight = pcf && pcf <= 8 ? 700 : 400;
+
   const roeColor = roe != null ? (roe >= 15 ? 'var(--green)' : roe >= 10 ? 'var(--yellow)' : 'var(--text)') : 'var(--text-ghost)';
   const debtColor = debt != null ? (debt <= 30 ? 'var(--green)' : debt <= 50 ? 'var(--yellow)' : debt <= 100 ? 'var(--amber)' : 'var(--red)') : 'var(--text-ghost)';
 
@@ -1300,6 +1327,7 @@ function buildRowHTML(s, i) {
     <td class="c"><div class="score-bar"><div class="score-track"><div class="score-fill" style="width:${score}%;background:${scoreColor}"></div></div><span class="score-num" style="color:${scoreColor}">${score}</span></div></td>
     <td class="c"><span class="badge ${badgeCls}">${s._class}</span></td>
     <td class="r" style="color:${peColor};font-weight:${peWeight}">${pe ? pe.toFixed(1)+'x' : '—'}</td>
+    <td class="r" style="color:${pcfColor};font-weight:${pcfWeight}">${pcf ? pcf.toFixed(1)+'x' : '—'}</td>
     <td class="r" style="color:${roeColor}">${roe != null ? roe.toFixed(1)+'%' : '—'}</td>
     <td class="r" style="color:${debtColor}">${debt != null ? debt.toFixed(0)+'%' : '—'}</td>
     <td class="r" style="color:${pm != null && pm >= 10 ? 'var(--green)' : 'var(--text-dim)'}">${pm != null ? pm.toFixed(1)+'%' : '—'}</td>
@@ -1317,7 +1345,7 @@ function renderTableBatched() {
   if (_renderRAF) { cancelAnimationFrame(_renderRAF); _renderRAF = null; }
 
   if (!FILTERED.length) {
-    tbody.innerHTML = '<tr><td colspan="16" class="empty-state">Aucun résultat — ajustez les filtres ▲</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="17" class="empty-state">Aucun résultat — ajustez les filtres ▲</td></tr>';
     return;
   }
 
@@ -1375,10 +1403,12 @@ function showDetail(ticker) {
   const scoreColor = s._score >= 70 ? 'var(--green)' : s._score >= 55 ? 'var(--amber)' : 'var(--yellow)';
 
   let html = '';
+  const detailPcf = s.pcf || s.price_to_cashflow;
   const metrics = [
     ['Pays', (FLAGS[s.country]||'') + ' ' + (COUNTRY_NAMES[s.country]||s.country), ''],
     ['Secteur', s.sector || '—', ''],
     ['P/E TTM', s.pe ? s.pe.toFixed(1) + 'x' : '—', s.pe && s.pe <= 10 ? 'var(--green)' : s.pe && s.pe <= 12 ? 'var(--amber)' : ''],
+    ['P/CF', detailPcf ? detailPcf.toFixed(1) + 'x' : '—', detailPcf && detailPcf <= 8 ? 'var(--green)' : detailPcf && detailPcf <= 12 ? 'var(--amber)' : detailPcf ? 'var(--red)' : ''],
     ['ROE', roe != null ? roe.toFixed(1) + '%' : '—', roe >= 15 ? 'var(--green)' : ''],
     ['Debt/Equity', debt != null ? debt.toFixed(0) + '%' : '—', debt != null && debt <= 30 ? 'var(--green)' : ''],
     ['Marge Nette', pm != null ? pm.toFixed(1) + '%' : '—', pm != null && pm >= 10 ? 'var(--green)' : ''],
@@ -1397,10 +1427,11 @@ function showDetail(ticker) {
     </div>`;
 
   const scoreItems = [
-    ['P/E', grades.pe, 35, s.pe ? Math.min(35, s.pe < 7 ? 35 : s.pe < 10 ? 30 : s.pe < 12 ? 25 : s.pe < 15 ? 15 : 5) : 0],
-    ['ROE', grades.roe, 30, roe ? (roe >= 25 ? 30 : roe >= 20 ? 25 : roe >= 15 ? 20 : roe >= 12 ? 15 : roe >= 10 ? 10 : 0) : 0],
-    ['Dette', grades.debt, 20, debt != null ? (debt <= 0 ? 20 : debt <= 30 ? 15 : debt <= 50 ? 10 : debt <= 100 ? 5 : 0) : 0],
-    ['Marge', grades.margin, 15, pm ? (pm >= 15 ? 15 : pm >= 10 ? 10 : pm >= 5 ? 5 : 0) : 0],
+    ['P/E', grades.pe, 30, s.pe ? Math.min(30, s.pe < 7 ? 30 : s.pe < 10 ? 25 : s.pe < 12 ? 20 : s.pe < 15 ? 12 : 4) : 0],
+    ['P/CF', grades.pcf || '—', 15, detailPcf ? (detailPcf <= 6 ? 15 : detailPcf <= 8 ? 12 : detailPcf <= 10 ? 9 : detailPcf <= 12 ? 6 : detailPcf <= 15 ? 3 : 0) : 0],
+    ['ROE', grades.roe, 25, roe ? (roe >= 25 ? 25 : roe >= 20 ? 21 : roe >= 15 ? 17 : roe >= 12 ? 12 : roe >= 10 ? 8 : 0) : 0],
+    ['Dette', grades.debt, 18, debt != null ? (debt <= 0 ? 18 : debt <= 30 ? 14 : debt <= 50 ? 9 : debt <= 100 ? 4 : 0) : 0],
+    ['Marge', grades.margin, 12, pm ? (pm >= 15 ? 12 : pm >= 10 ? 8 : pm >= 5 ? 4 : 0) : 0],
   ];
 
   scoreItems.forEach(([label, grade, max, pts]) => {
@@ -1483,7 +1514,7 @@ function setUniverse(u) {
   loadDataWithScope(u);
 }
 
-async function loadDataWithScope(scope) {
+async function loadDataWithScope(scope, forceRefresh = false) {
   // Show Bloomberg-style loader
   const scopeName = scope === 'france' ? 'France' : 'Europe';
   showBBGLoader(scope, `Connexion au serveur...`);
@@ -1491,16 +1522,14 @@ async function loadDataWithScope(scope) {
   try {
     updateBBGLoader(null, `Récupération des données ${scopeName}...`);
 
-    // Force fresh data with unique cache buster and force parameter
-    const cacheBuster = `&_t=${Date.now()}&r=${Math.random()}`;
-    const resp = await fetch(`/?action=screener_json&scope=${scope}&force=1${cacheBuster}`, {
-      signal: AbortSignal.timeout(30000),
-      cache: 'no-store',  // More aggressive than no-cache
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
+    // First try to load from server cache (no force) - this is fast
+    // Only use force=1 if explicitly requested
+    const cacheBuster = `&_t=${Date.now()}`;
+    const forceParam = forceRefresh ? '&force=1' : '';
+
+    const resp = await fetch(`/?action=screener_json&scope=${scope}${forceParam}${cacheBuster}`, {
+      signal: AbortSignal.timeout(forceRefresh ? 120000 : 15000), // 2min if forcing, 15s for cache
+      cache: 'no-cache'
     });
 
     if (resp.ok) {
@@ -1509,7 +1538,11 @@ async function loadDataWithScope(scope) {
       const json = await resp.json();
       const data = json.screener || json.data || json;
 
-      console.log(`[UNIVERSE] Loaded ${data.length} stocks for ${scope}`);
+      if (!data || data.length === 0) {
+        throw new Error('Aucune donnée disponible');
+      }
+
+      console.log(`[UNIVERSE] Loaded ${data.length} stocks for ${scope} (cached: ${!forceRefresh})`);
 
       updateBBGLoader(data.length, 'Enrichissement des données...');
 
@@ -1518,11 +1551,12 @@ async function loadDataWithScope(scope) {
 
       updateBBGLoader(data.length, 'Préparation de l\'interface...');
 
-      // Save to cache
+      // Save to localStorage cache
       Cache.save(data, { scope: scope, timestamp: Date.now() });
 
       activateUI();
-      setCacheStatus('fresh', `${data.length} valeurs • ${scope}`);
+      const cacheInfo = json.meta?.cached ? '(cache)' : '(frais)';
+      setCacheStatus('fresh', `${data.length} valeurs ${cacheInfo} • ${scope}`);
 
       updateBBGLoader(data.length, 'Terminé!');
 
@@ -1537,6 +1571,14 @@ async function loadDataWithScope(scope) {
     console.error('[UNIVERSE] Error loading data:', err);
     hideBBGLoader();
     setCacheStatus('error', 'Erreur de chargement');
+
+    // If we weren't forcing and it failed, offer to try with force
+    if (!forceRefresh && err.message.includes('timeout')) {
+      if (confirm(`Le cache pour ${scopeName} n'est pas disponible.\n\nVoulez-vous lancer un scan complet?\nCela peut prendre 5-10 minutes.`)) {
+        loadDataWithScope(scope, true); // Retry with force
+        return;
+      }
+    }
     alert(`Erreur lors du chargement de l'univers ${scope}: ${err.message}`);
   }
 }
@@ -1604,6 +1646,9 @@ document.addEventListener('keydown', function(e) {
 // ═══════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════
+// Set initial button states based on UNIVERSE (may come from URL)
+document.getElementById('btn-france').classList.toggle('active', UNIVERSE === 'france');
+document.getElementById('btn-europe').classList.toggle('active', UNIVERSE === 'europe');
 loadData();
 </script>
 </body>

@@ -122,10 +122,22 @@ class HiggonsConfig:
     pe_max_buy: float = 12.0  # Maximum P/E for buying
     roe_min_buy: float = 10.0  # Minimum ROE % for buying
     debt_equity_max: float = 100.0  # Maximum Debt/Equity % for buying
+    pcf_max_buy: float = 10.0  # Maximum P/CF for buying (Higgons recommendation)
 
     # === SELL CRITERIA (Default) ===
     pe_sell_threshold: float = 17.0  # Sell if P/E exceeds this
     roe_min_hold: float = 8.0  # Sell if ROE drops below this %
+    pcf_sell_threshold: float = 15.0  # Sell if P/CF exceeds this
+
+    # === P/CF SCORING THRESHOLDS ===
+    # Points awarded based on Price/Cash Flow ratio (max 5 points)
+    # P/CF = Market Cap / Operating Cash Flow
+    # Lower is better (company generates more cash relative to price)
+    pcf_excellent: float = 6.0  # <= 6 gets 5 points
+    pcf_very_good: float = 8.0  # <= 8 gets 4 points
+    pcf_good: float = 10.0  # <= 10 gets 3 points
+    pcf_fair: float = 12.0  # <= 12 gets 2 points
+    pcf_acceptable: float = 15.0  # <= 15 gets 1 point
 
     # === AI OPTIMAL CRITERIA ===
     # Results from AI optimization backtesting
@@ -218,6 +230,7 @@ class BacktestConfig:
     roe_variations: List[int] = field(default_factory=lambda: [8, 10, 12, 15])
     debt_variations: List[int] = field(default_factory=lambda: [50, 100, 150])
     position_variations: List[int] = field(default_factory=lambda: [10, 15, 20, 25, 30])
+    pcf_variations: List[int] = field(default_factory=lambda: [6, 8, 10, 12, 15])
 
 
 BACKTEST = BacktestConfig()
@@ -225,25 +238,29 @@ BACKTEST = BacktestConfig()
 # Default backtest parameter grid
 BACKTEST_PARAM_GRID: List[Dict[str, any]] = [
     # PE variations
-    {'pe_max': 8, 'roe_min': 10, 'pe_sell': 15, 'debt_equity_max': 100, 'max_positions': 20},
-    {'pe_max': 10, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'max_positions': 20},
-    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 20, 'debt_equity_max': 100, 'max_positions': 20},
-    {'pe_max': 15, 'roe_min': 10, 'pe_sell': 25, 'debt_equity_max': 100, 'max_positions': 20},
+    {'pe_max': 8, 'roe_min': 10, 'pe_sell': 15, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 20},
+    {'pe_max': 10, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 20},
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 20, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 20},
+    {'pe_max': 15, 'roe_min': 10, 'pe_sell': 25, 'debt_equity_max': 100, 'pcf_max': 12, 'max_positions': 20},
     # ROE variations
-    {'pe_max': 12, 'roe_min': 8, 'pe_sell': 17, 'debt_equity_max': 100, 'max_positions': 20},
-    {'pe_max': 12, 'roe_min': 12, 'pe_sell': 17, 'debt_equity_max': 100, 'max_positions': 20},
-    {'pe_max': 12, 'roe_min': 15, 'pe_sell': 17, 'debt_equity_max': 100, 'max_positions': 20},
+    {'pe_max': 12, 'roe_min': 8, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 20},
+    {'pe_max': 12, 'roe_min': 12, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 20},
+    {'pe_max': 12, 'roe_min': 15, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 20},
     # Debt variations
-    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 50, 'max_positions': 20},
-    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 150, 'max_positions': 20},
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 50, 'pcf_max': 10, 'max_positions': 20},
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 150, 'pcf_max': 10, 'max_positions': 20},
+    # P/CF variations
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 6, 'max_positions': 20},
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 8, 'max_positions': 20},
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 15, 'max_positions': 20},
     # Position count variations
-    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'max_positions': 10},
-    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'max_positions': 15},
-    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'max_positions': 30},
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 10},
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 15},
+    {'pe_max': 12, 'roe_min': 10, 'pe_sell': 17, 'debt_equity_max': 100, 'pcf_max': 10, 'max_positions': 30},
     # Combined aggressive value
-    {'pe_max': 8, 'roe_min': 12, 'pe_sell': 12, 'debt_equity_max': 50, 'max_positions': 15},
+    {'pe_max': 8, 'roe_min': 12, 'pe_sell': 12, 'debt_equity_max': 50, 'pcf_max': 8, 'max_positions': 15},
     # Combined moderate
-    {'pe_max': 15, 'roe_min': 8, 'pe_sell': 25, 'debt_equity_max': 150, 'max_positions': 25},
+    {'pe_max': 15, 'roe_min': 8, 'pe_sell': 25, 'debt_equity_max': 150, 'pcf_max': 15, 'max_positions': 25},
 ]
 
 
@@ -526,6 +543,7 @@ class UILabels:
     col_weight: str = "Weight"
     col_change: str = "%Chg"
     col_pe: str = "P/E"
+    col_pcf: str = "P/CF"
     col_roe: str = "ROE"
     col_signal: str = "Signal"
     col_actions: str = "Actions"
