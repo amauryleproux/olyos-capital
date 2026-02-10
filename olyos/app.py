@@ -35,6 +35,7 @@ from olyos.services.position_manager import PositionManager, create_position_man
 from olyos.services.pdf_report import PDFReportService, create_pdf_report_service
 from olyos.services.insider import InsiderService, InsiderTransaction, TransactionType, create_insider_service
 from olyos.services.rebalancing import RebalancingService, RebalanceConfig, create_rebalancing_service
+from olyos.services.ai_analysis import run_analysis as run_ai_analysis
 
 # Initialize loggers for different components
 log = get_logger('main')
@@ -13368,6 +13369,7 @@ def gen_detail_html(data: Dict[str, Any]) -> str:
 <div class="bb-detail-price"><div class="bb-detail-price-val {price_cls}">{fmt(data['price'])} EUR</div><div class="bb-detail-change {chg_cls}">{chg_sign}{fmt(data['change'])} ({chg_sign}{fmt(data['change_pct'])}%)</div></div>
 <button class="bb-btn bb-btn-g" onclick="addToWatchlistDetail(this)" style="white-space:nowrap;padding:8px 16px;">+ WATCHLIST</button>
 <button class="bb-btn" onclick="toggleAlertConfig()" style="white-space:nowrap;padding:8px 16px;">🔔 ALERTS</button>
+<button id="btn-ai-analyze" class="btn-analyze" onclick="launchAnalysis('{data['ticker']}')" style="white-space:nowrap;"><span class="analyze-icon">◆</span><span class="analyze-text">Analyser</span><span class="analyze-badge">IA</span></button>
 </div>
 
 </div></div>
@@ -13454,6 +13456,556 @@ def gen_detail_html(data: Dict[str, Any]) -> str:
   margin-top: 15px;
   padding-top: 15px;
   border-top: 1px solid #333;
+}}
+</style>
+
+<style id="analysis-styles">
+/* ========================================
+   AI Equity Research — Button & Modal CSS
+   ======================================== */
+
+/* Analyze Button */
+.btn-analyze {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #1a2332 0%, #111822 100%);
+    border: 1px solid #00ff88;
+    border-radius: 4px;
+    color: #00ff88;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    letter-spacing: 0.5px;
+}}
+.btn-analyze:hover {{
+    background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+    color: #0a0e14;
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+}}
+.btn-analyze:active {{ transform: scale(0.98); }}
+.btn-analyze .analyze-icon {{ font-size: 14px; }}
+.btn-analyze .analyze-badge {{
+    background: rgba(0, 255, 136, 0.15);
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 9px;
+    letter-spacing: 1px;
+}}
+.btn-analyze:hover .analyze-badge {{ background: rgba(10, 14, 20, 0.3); }}
+.btn-analyze.loading {{
+    pointer-events: none;
+    opacity: 0.7;
+    border-color: #ff9500;
+    color: #ff9500;
+}}
+.btn-analyze.loading .analyze-badge {{
+    background: rgba(255, 149, 0, 0.15);
+    animation: analysePulse 1.5s infinite;
+}}
+@keyframes analysePulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.4; }}
+}}
+
+/* Modal Fullscreen */
+.analysis-modal {{
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #0a0e14;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}}
+.analysis-modal-header {{
+    background: #111822;
+    border-bottom: 1px solid #1e2d3d;
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}}
+.analysis-modal-logo {{
+    color: #00ff88;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 2px;
+}}
+.analysis-modal-meta {{
+    color: #484f58;
+    font-size: 10px;
+}}
+.analysis-modal-meta span {{
+    color: #ff9500;
+}}
+.analysis-cache-badge {{
+    background: rgba(88,166,255,0.15);
+    color: #58a6ff;
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 8px;
+    letter-spacing: 1px;
+    margin-left: 8px;
+    border: 1px solid rgba(88,166,255,0.3);
+}}
+.analysis-modal-actions {{
+    display: flex;
+    gap: 4px;
+}}
+.modal-btn {{
+    background: transparent;
+    border: 1px solid #1e2d3d;
+    color: #8b949e;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    transition: all 0.15s;
+}}
+.modal-btn:hover {{
+    border-color: #00ff88;
+    color: #00ff88;
+}}
+.modal-btn-close:hover {{
+    border-color: #ff4444;
+    color: #ff4444;
+}}
+
+/* Content area (scrollable) */
+.analysis-content {{
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+}}
+
+/* Loading */
+.analysis-loading {{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+}}
+.loading-spinner {{
+    width: 40px;
+    height: 40px;
+    border: 3px solid #1e2d3d;
+    border-top-color: #00ff88;
+    border-radius: 50%;
+    animation: analyseSpin 1s linear infinite;
+}}
+@keyframes analyseSpin {{
+    to {{ transform: rotate(360deg); }}
+}}
+.loading-text {{
+    color: #e6edf3;
+    font-size: 14px;
+    font-weight: 600;
+}}
+.loading-subtext {{
+    color: #484f58;
+    font-size: 11px;
+}}
+.loading-steps {{
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}}
+.loading-step {{
+    color: #484f58;
+    font-size: 11px;
+    transition: color 0.3s;
+}}
+.loading-step.active {{
+    color: #00ff88;
+}}
+.loading-step.done {{
+    color: #8b949e;
+}}
+
+/* Error */
+.analysis-error {{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}}
+.error-icon {{
+    font-size: 32px;
+    color: #ff4444;
+}}
+.error-text {{
+    color: #ff4444;
+    font-size: 12px;
+}}
+
+/* ========================================
+   Equity Research Report Design System
+   (Classes used by the Claude-generated HTML)
+   ======================================== */
+
+/* Ticker Header */
+.analysis-content .ticker-header {{
+    background: #111822;
+    border: 1px solid #1e2d3d;
+    border-radius: 4px;
+    padding: 20px 24px;
+    margin-bottom: 12px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: start;
+}}
+.analysis-content .ticker-info h1 {{
+    font-size: 22px;
+    font-weight: 700;
+    color: #e6edf3;
+    margin-bottom: 2px;
+}}
+.analysis-content .ticker-info h1 .ticker {{ color: #ff9500; }}
+.analysis-content .ticker-info .subtitle {{ color: #8b949e; font-size: 11px; }}
+.analysis-content .price-block {{ text-align: right; }}
+.analysis-content .price-block .price {{
+    font-size: 32px;
+    font-weight: 700;
+}}
+.analysis-content .price-block .price-eur {{ color: #484f58; font-size: 14px; }}
+.analysis-content .price-block .change {{ font-size: 12px; margin-top: 2px; }}
+.analysis-content .price-block .asof {{ color: #484f58; font-size: 9px; margin-top: 4px; }}
+
+/* Verdict Banner */
+.analysis-content .verdict-banner {{
+    background: linear-gradient(135deg, #1a2332 0%, #0f1922 100%);
+    border: 1px solid #ff9500;
+    border-left: 4px solid #ff9500;
+    border-radius: 4px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+}}
+.analysis-content .verdict-banner .verdict-label {{
+    color: #ff9500;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}}
+.analysis-content .verdict-banner .verdict-text {{
+    color: #e6edf3;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.7;
+}}
+
+/* Grid Layouts */
+.analysis-content .grid-2 {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}}
+.analysis-content .grid-3 {{
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}}
+@media (max-width: 900px) {{
+    .analysis-content .grid-2, .analysis-content .grid-3 {{ grid-template-columns: 1fr; }}
+}}
+
+/* Panel */
+.analysis-content .panel {{
+    background: #111822;
+    border: 1px solid #1e2d3d;
+    border-radius: 4px;
+    overflow: hidden;
+}}
+.analysis-content .panel-title {{
+    background: #1a2332;
+    padding: 8px 14px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #00ff88;
+    border-bottom: 1px solid #1e2d3d;
+}}
+.analysis-content .panel-body {{
+    padding: 14px;
+}}
+
+/* Metrics */
+.analysis-content .metric-row {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(30,45,61,0.5);
+}}
+.analysis-content .metric-row:last-child {{ border-bottom: none; }}
+.analysis-content .metric-label {{
+    color: #8b949e;
+    font-size: 11px;
+}}
+.analysis-content .metric-value {{
+    font-weight: 600;
+    font-size: 12px;
+}}
+.analysis-content .metric-value.good {{ color: #00ff88; }}
+.analysis-content .metric-value.warning {{ color: #ff9500; }}
+.analysis-content .metric-value.bad {{ color: #ff4444; }}
+.analysis-content .metric-value.neutral {{ color: #e6edf3; }}
+
+/* Higgons Score */
+.analysis-content .higgons-grid {{
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}}
+.analysis-content .higgons-criteria {{
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    background: #0a0e14;
+    border-radius: 3px;
+    border-left: 3px solid transparent;
+}}
+.analysis-content .higgons-criteria.pass {{ border-left-color: #00ff88; }}
+.analysis-content .higgons-criteria.fail {{ border-left-color: #ff4444; }}
+.analysis-content .higgons-criteria.partial {{ border-left-color: #ff9500; }}
+.analysis-content .criteria-icon {{
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+}}
+.analysis-content .criteria-icon.pass {{ background: rgba(0,255,136,0.15); color: #00ff88; }}
+.analysis-content .criteria-icon.fail {{ background: rgba(255,68,68,0.15); color: #ff4444; }}
+.analysis-content .criteria-icon.partial {{ background: rgba(255,149,0,0.15); color: #ff9500; }}
+.analysis-content .criteria-name {{ font-size: 11px; color: #e6edf3; }}
+.analysis-content .criteria-target {{ font-size: 10px; color: #484f58; }}
+.analysis-content .criteria-actual {{ font-size: 11px; font-weight: 600; }}
+
+/* Score Badge */
+.analysis-content .score-badge {{
+    text-align: center;
+    padding: 16px;
+    margin-top: 10px;
+    background: #0a0e14;
+    border-radius: 4px;
+}}
+.analysis-content .score-badge .score-num {{
+    font-size: 36px;
+    font-weight: 700;
+}}
+.analysis-content .score-badge .score-label {{
+    font-size: 10px;
+    color: #484f58;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 2px;
+}}
+
+/* Financial Table */
+.analysis-content .fin-table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}}
+.analysis-content .fin-table th {{
+    text-align: right;
+    padding: 6px 8px;
+    color: #484f58;
+    font-weight: 500;
+    font-size: 10px;
+    border-bottom: 1px solid #1e2d3d;
+}}
+.analysis-content .fin-table th:first-child {{ text-align: left; }}
+.analysis-content .fin-table td {{
+    text-align: right;
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(30,45,61,0.3);
+}}
+.analysis-content .fin-table td:first-child {{
+    text-align: left;
+    color: #8b949e;
+}}
+.analysis-content .fin-table tr:hover {{ background: rgba(0,255,136,0.02); }}
+
+/* SWOT */
+.analysis-content .swot-grid {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}}
+.analysis-content .swot-box {{
+    padding: 12px;
+    border-radius: 3px;
+    background: #0a0e14;
+}}
+.analysis-content .swot-box h4 {{
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #1e2d3d;
+}}
+.analysis-content .swot-box.strength h4 {{ color: #00ff88; }}
+.analysis-content .swot-box.weakness h4 {{ color: #ff4444; }}
+.analysis-content .swot-box.opportunity h4 {{ color: #58a6ff; }}
+.analysis-content .swot-box.threat h4 {{ color: #ff9500; }}
+.analysis-content .swot-box ul {{ list-style: none; padding: 0; }}
+.analysis-content .swot-box li {{
+    font-size: 10px;
+    color: #8b949e;
+    padding: 3px 0;
+    padding-left: 12px;
+    position: relative;
+    line-height: 1.5;
+}}
+.analysis-content .swot-box li::before {{
+    content: '›';
+    position: absolute;
+    left: 0;
+    font-weight: 700;
+}}
+.analysis-content .swot-box.strength li::before {{ color: #00ff88; }}
+.analysis-content .swot-box.weakness li::before {{ color: #ff4444; }}
+.analysis-content .swot-box.opportunity li::before {{ color: #58a6ff; }}
+.analysis-content .swot-box.threat li::before {{ color: #ff9500; }}
+
+/* Tags */
+.analysis-content .tag {{
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}}
+.analysis-content .tag.buy {{ background: rgba(0,255,136,0.12); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }}
+.analysis-content .tag.hold {{ background: rgba(255,149,0,0.12); color: #ff9500; border: 1px solid rgba(255,149,0,0.3); }}
+.analysis-content .tag.sell {{ background: rgba(255,68,68,0.12); color: #ff4444; border: 1px solid rgba(255,68,68,0.3); }}
+.analysis-content .tag.info {{ background: rgba(88,166,255,0.12); color: #58a6ff; border: 1px solid rgba(88,166,255,0.3); }}
+
+/* Progress Bar */
+.analysis-content .progress-container {{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+}}
+.analysis-content .progress-bar {{
+    flex: 1;
+    height: 4px;
+    background: #0a0e14;
+    border-radius: 2px;
+    overflow: hidden;
+}}
+.analysis-content .progress-fill {{
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s;
+}}
+.analysis-content .progress-label {{
+    font-size: 10px;
+    color: #484f58;
+    min-width: 30px;
+}}
+
+/* Narrative */
+.analysis-content .narrative {{
+    padding: 14px;
+    font-size: 11px;
+    color: #8b949e;
+    line-height: 1.8;
+}}
+.analysis-content .narrative p {{ margin-bottom: 10px; }}
+.analysis-content .narrative strong {{ color: #e6edf3; }}
+.analysis-content .narrative .highlight-green {{ color: #00ff88; }}
+.analysis-content .narrative .highlight-red {{ color: #ff4444; }}
+.analysis-content .narrative .highlight-orange {{ color: #ff9500; }}
+
+/* Section Title */
+.analysis-content .section-title {{
+    color: #00ff88;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin: 20px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #1e2d3d;
+}}
+
+/* Separator */
+.analysis-content .sep {{
+    height: 1px;
+    background: #1e2d3d;
+    margin: 16px 0;
+}}
+
+/* Full width panel */
+.analysis-content .full-width {{ margin-bottom: 12px; }}
+
+/* Footer */
+.analysis-content .footer {{
+    margin-top: 24px;
+    padding: 12px;
+    text-align: center;
+    color: #484f58;
+    font-size: 9px;
+    border-top: 1px solid #1e2d3d;
+}}
+.analysis-content .footer .disclaimer {{
+    max-width: 800px;
+    margin: 0 auto;
+    line-height: 1.6;
+}}
+
+/* Live dot animation */
+.analysis-content .live-dot {{
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #00ff88;
+    animation: analyseBlink 1.5s infinite;
+    margin-right: 4px;
+}}
+@keyframes analyseBlink {{
+    0%, 50% {{ opacity: 1; }}
+    51%, 100% {{ opacity: 0.3; }}
+}}
+
+@media (max-width: 900px) {{
+    .analysis-content .swot-grid {{ grid-template-columns: 1fr; }}
+    .analysis-content .ticker-header {{ grid-template-columns: 1fr; }}
 }}
 </style>
 
@@ -14049,7 +14601,262 @@ function loadTickerDividends() {{
 // Load dividend data on page load
 setTimeout(loadTickerDividends, 500);
 
+// ========================================
+// AI Equity Research Analysis
+// ========================================
+
+let currentAnalysisTicker = null;
+
+function launchAnalysis(ticker) {{
+    currentAnalysisTicker = ticker;
+
+    // Open modal
+    const modal = document.getElementById('analysis-modal');
+    modal.style.display = 'flex';
+
+    // Show loading
+    document.getElementById('analysis-loading').style.display = 'flex';
+    document.getElementById('analysis-content').style.display = 'none';
+    document.getElementById('analysis-error').style.display = 'none';
+
+    // Update header
+    document.getElementById('analysis-ticker').textContent = ticker;
+    document.getElementById('analysis-timestamp').textContent =
+        new Date().toLocaleDateString('fr-FR', {{
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        }});
+
+    // Update button state
+    const btn = document.getElementById('btn-ai-analyze');
+    btn.classList.add('loading');
+    btn.querySelector('.analyze-text').textContent = 'Analyse...';
+
+    // Animate loading steps
+    animateLoadingSteps();
+
+    // API call
+    fetch('/?action=analyze_stock&ticker=' + ticker, {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{}}),
+    }})
+    .then(response => response.json())
+    .then(data => {{
+        if (data.success) {{
+            document.getElementById('analysis-loading').style.display = 'none';
+            const contentEl = document.getElementById('analysis-content');
+            contentEl.innerHTML = data.html;
+            contentEl.style.display = 'block';
+            if (data.from_cache) {{
+                document.getElementById('analysis-cache-badge').style.display = 'inline';
+            }}
+        }} else {{
+            showAnalysisError(data.error || 'Erreur inconnue');
+        }}
+    }})
+    .catch(error => {{
+        showAnalysisError('Erreur de connexion : ' + error.message);
+    }})
+    .finally(() => {{
+        const btn = document.getElementById('btn-ai-analyze');
+        btn.classList.remove('loading');
+        btn.querySelector('.analyze-text').textContent = 'Analyser';
+        if (window._loadingInterval) clearInterval(window._loadingInterval);
+    }});
+}}
+
+function animateLoadingSteps() {{
+    const steps = ['step-data', 'step-analysis', 'step-report'];
+    let current = 0;
+
+    // Reset steps
+    steps.forEach(s => {{
+        const el = document.getElementById(s);
+        if (el) {{
+            el.classList.remove('active', 'done');
+        }}
+    }});
+    document.getElementById(steps[0]).classList.add('active');
+
+    const interval = setInterval(() => {{
+        if (current > 0) {{
+            const prev = document.getElementById(steps[current - 1]);
+            if (prev) {{
+                prev.classList.remove('active');
+                prev.classList.add('done');
+            }}
+        }}
+        current++;
+        if (current < steps.length) {{
+            document.getElementById(steps[current]).classList.add('active');
+        }} else {{
+            clearInterval(interval);
+        }}
+    }}, 3000);
+
+    window._loadingInterval = interval;
+}}
+
+function showAnalysisError(message) {{
+    document.getElementById('analysis-loading').style.display = 'none';
+    document.getElementById('analysis-content').style.display = 'none';
+    document.getElementById('analysis-error').style.display = 'flex';
+    document.getElementById('error-message').textContent = message;
+    if (window._loadingInterval) clearInterval(window._loadingInterval);
+}}
+
+function closeAnalysis() {{
+    document.getElementById('analysis-modal').style.display = 'none';
+    if (window._loadingInterval) clearInterval(window._loadingInterval);
+}}
+
+function retryAnalysis() {{
+    if (currentAnalysisTicker) {{
+        launchAnalysis(currentAnalysisTicker);
+    }}
+}}
+
+function refreshAnalysis() {{
+    if (!currentAnalysisTicker) return;
+
+    // Force refresh (bypass cache)
+    document.getElementById('analysis-loading').style.display = 'flex';
+    document.getElementById('analysis-content').style.display = 'none';
+    document.getElementById('analysis-error').style.display = 'none';
+    document.getElementById('analysis-cache-badge').style.display = 'none';
+
+    animateLoadingSteps();
+
+    fetch('/?action=analyze_stock&ticker=' + currentAnalysisTicker, {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ force_refresh: true }}),
+    }})
+    .then(response => response.json())
+    .then(data => {{
+        if (data.success) {{
+            document.getElementById('analysis-loading').style.display = 'none';
+            const contentEl = document.getElementById('analysis-content');
+            contentEl.innerHTML = data.html;
+            contentEl.style.display = 'block';
+        }} else {{
+            showAnalysisError(data.error || 'Erreur inconnue');
+        }}
+    }})
+    .catch(error => {{
+        showAnalysisError('Erreur de connexion : ' + error.message);
+    }})
+    .finally(() => {{
+        if (window._loadingInterval) clearInterval(window._loadingInterval);
+    }});
+}}
+
+function printAnalysis() {{
+    const content = document.getElementById('analysis-content').innerHTML;
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <html>
+        <head>
+            <title>Olyos Capital — Equity Research</title>
+            <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+            <style>
+                :root {{
+                    --bg-primary: #0a0e14; --bg-secondary: #111822; --bg-tertiary: #1a2332;
+                    --border: #1e2d3d; --text-primary: #e6edf3; --text-secondary: #8b949e;
+                    --text-muted: #484f58; --green: #00ff88; --red: #ff4444; --orange: #ff9500;
+                    --yellow: #ffd700; --blue: #58a6ff; --cyan: #00d4ff;
+                }}
+                * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+                body {{ font-family: 'JetBrains Mono', monospace; background: var(--bg-primary); color: var(--text-primary); font-size: 12px; line-height: 1.6; padding: 16px; max-width: 1400px; margin: 0 auto; }}
+                ${{document.getElementById('analysis-styles').textContent}}
+            </style>
+        </head>
+        <body>${{content}}</body>
+        </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+}}
+
+function downloadAnalysis() {{
+    const content = document.getElementById('analysis-content').innerHTML;
+    const ticker = currentAnalysisTicker;
+    const date = new Date().toISOString().split('T')[0];
+
+    const fullHtml = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Olyos Capital — ${{ticker}} — Equity Research</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {{
+    --bg-primary: #0a0e14; --bg-secondary: #111822; --bg-tertiary: #1a2332;
+    --border: #1e2d3d; --text-primary: #e6edf3; --text-secondary: #8b949e;
+    --text-muted: #484f58; --green: #00ff88; --red: #ff4444; --orange: #ff9500;
+    --yellow: #ffd700; --blue: #58a6ff; --cyan: #00d4ff;
+}}
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ font-family: 'JetBrains Mono', monospace; background: var(--bg-primary); color: var(--text-primary); font-size: 12px; line-height: 1.6; padding: 16px; max-width: 1400px; margin: 0 auto; }}
+${{document.getElementById('analysis-styles').textContent}}
+</style>
+</head>
+<body>${{content}}</body>
+</html>`;
+
+    const blob = new Blob([fullHtml], {{ type: 'text/html' }});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${{ticker}}_equity_research_${{date}}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+}}
+
+// Close modal with Escape
+document.addEventListener('keydown', (e) => {{
+    if (e.key === 'Escape') closeAnalysis();
+}});
+
 </script>
+
+<!-- Analysis Modal -->
+<div id="analysis-modal" class="analysis-modal" style="display:none;">
+    <div class="analysis-modal-header">
+        <div class="analysis-modal-logo">◆ OLYOS CAPITAL</div>
+        <div class="analysis-modal-meta">
+            EQUITY RESEARCH │ <span id="analysis-ticker"></span> │
+            <span id="analysis-timestamp"></span>
+            <span id="analysis-cache-badge" class="analysis-cache-badge" style="display:none;">CACHE</span>
+        </div>
+        <div class="analysis-modal-actions">
+            <button onclick="refreshAnalysis()" class="modal-btn" title="Rafraîchir (ignorer le cache)">↻</button>
+            <button onclick="printAnalysis()" class="modal-btn" title="Imprimer">⎙</button>
+            <button onclick="downloadAnalysis()" class="modal-btn" title="Télécharger HTML">↓</button>
+            <button onclick="closeAnalysis()" class="modal-btn modal-btn-close" title="Fermer">✕</button>
+        </div>
+    </div>
+
+    <div id="analysis-loading" class="analysis-loading" style="display:none;">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Analyse en cours...</div>
+        <div class="loading-subtext">Claude génère le rapport d'equity research</div>
+        <div class="loading-steps">
+            <div class="loading-step active" id="step-data">▸ Collecte des données financières</div>
+            <div class="loading-step" id="step-analysis">▸ Analyse méthode Higgons</div>
+            <div class="loading-step" id="step-report">▸ Génération du rapport</div>
+        </div>
+    </div>
+
+    <div id="analysis-content" class="analysis-content" style="display:none;"></div>
+
+    <div id="analysis-error" class="analysis-error" style="display:none;">
+        <div class="error-icon">⚠</div>
+        <div class="error-text" id="error-message"></div>
+        <button onclick="retryAnalysis()" class="btn-analyze" style="margin-top:12px;">◆ Réessayer</button>
+    </div>
+</div>
 
 </body></html>'''
 
@@ -14179,7 +14986,57 @@ class Handler(SimpleHTTPRequestHandler):
 
             return
 
-        
+
+
+        if q.get('action') == ['analyze_stock']:
+
+            ticker = q.get('ticker', [''])[0]
+
+            if not ticker:
+                # Try to get ticker from JSON body
+                try:
+                    body = json.loads(post_data)
+                    ticker = body.get('ticker', '')
+                    force_refresh = body.get('force_refresh', False)
+                except Exception:
+                    force_refresh = False
+
+            else:
+                try:
+                    body = json.loads(post_data) if post_data else {}
+                    force_refresh = body.get('force_refresh', False)
+                except Exception:
+                    force_refresh = False
+
+            self.send_response(200)
+
+            self.send_header('Content-type', 'application/json')
+
+            self.end_headers()
+
+
+
+            if not ticker:
+                response = json.dumps({'success': False, 'error': 'Ticker manquant'})
+            elif not ANTHROPIC_OK:
+                response = json.dumps({'success': False, 'error': 'API Anthropic non configurée. Définir ANTHROPIC_API_KEY.'})
+            else:
+                result = run_ai_analysis(
+                    ticker=ticker,
+                    get_security_data_func=get_security_data,
+                    yfinance_ok=YFINANCE_OK,
+                    api_key=ANTHROPIC_API_KEY,
+                    force_refresh=force_refresh
+                )
+                response = json.dumps(result, ensure_ascii=False)
+
+
+
+            self.wfile.write(response.encode('utf-8'))
+
+            return
+
+
 
         if q.get('action') == ['run_backtest']:
 

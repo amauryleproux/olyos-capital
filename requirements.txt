@@ -11,6 +11,9 @@ reportlab>=4.0.0
 matplotlib>=3.7.0
 svglib>=1.5.0
 
+# AI analysis (Claude API)
+anthropic>=0.39.0
+
 # Optional: Progress bars for CLI
 tqdm>=4.64.0
 
