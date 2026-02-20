@@ -796,6 +796,7 @@ function enrichData(data) {
     s._grades = grades;
     s._class = classify(s, score);
     s._roe_pct = s.roe ? (s.roe < 1 ? s.roe * 100 : s.roe) : null;
+    s._roce_pct = s.roce != null ? (Math.abs(s.roce) < 1 ? s.roce * 100 : s.roce) : null;
     s._debt_pct = s.debt_equity != null ? (s.debt_equity < 5 ? s.debt_equity * 100 : s.debt_equity) : null;
     s._pm_pct = s.profit_margin ? (s.profit_margin < 1 ? s.profit_margin * 100 : s.profit_margin) : null;
   });
@@ -994,8 +995,9 @@ function forceRefresh() {
 
 function clearLocalCache() {
   Cache.clear();
-  setCacheStatus('stale', 'Cache vidé');
+  setCacheStatus('stale', 'Cache vidé — rechargement...');
   document.getElementById('load-time').textContent = '';
+  setTimeout(() => location.reload(), 300);
 }
 
 // ═══ EOD DATA REFRESH ═══
@@ -1168,6 +1170,7 @@ function getVal(s, col) {
     case 'pe': return s.pe;
     case 'pcf': return s.pcf;
     case 'roe': return s._roe_pct;
+    case 'roce': return s._roce_pct;
     case 'debt': return s._debt_pct;
     case 'margin': return s._pm_pct;
     case 'ticker': return s.ticker;
@@ -1216,6 +1219,7 @@ const COLUMNS = [
   { key: 'pe', label: 'P/E', cls: 'r', sortable: true },
   { key: 'pcf', label: 'P/CF', cls: 'r', sortable: true },
   { key: 'roe', label: 'ROE', cls: 'r', sortable: true },
+  { key: 'roce', label: 'ROCE', cls: 'r', sortable: true },
   { key: 'debt', label: 'Debt%', cls: 'r', sortable: true },
   { key: 'margin', label: 'Marge', cls: 'r', sortable: true },
   { key: 'momentum_12m', label: 'Mom 12M', cls: 'r', sortable: true },
@@ -1256,6 +1260,7 @@ function esc(s) {
 function buildRowHTML(s, i) {
   const pe = s.pe;
   const roe = s._roe_pct;
+  const roce = s._roce_pct;
   const debt = s._debt_pct;
   const pm = s._pm_pct;
   const score = s._score;
@@ -1278,6 +1283,8 @@ function buildRowHTML(s, i) {
   const pcfWeight = pcf && pcf <= 8 ? 700 : 400;
 
   const roeColor = roe != null ? (roe >= 15 ? 'var(--green)' : roe >= 10 ? 'var(--yellow)' : 'var(--text)') : 'var(--text-ghost)';
+  const roceColor = roce != null ? (roce >= 15 ? 'var(--green)' : roce >= 10 ? 'var(--yellow)' : 'var(--text)') : 'var(--text-ghost)';
+  const roceWeight = roce != null && roce >= 15 ? 700 : 400;
   const debtColor = debt != null ? (debt <= 30 ? 'var(--green)' : debt <= 50 ? 'var(--yellow)' : debt <= 100 ? 'var(--amber)' : 'var(--red)') : 'var(--text-ghost)';
 
   const gradeHtml = ['pe','roe','debt','margin'].map(k => {
@@ -1329,6 +1336,7 @@ function buildRowHTML(s, i) {
     <td class="r" style="color:${peColor};font-weight:${peWeight}">${pe ? pe.toFixed(1)+'x' : '—'}</td>
     <td class="r" style="color:${pcfColor};font-weight:${pcfWeight}">${pcf ? pcf.toFixed(1)+'x' : '—'}</td>
     <td class="r" style="color:${roeColor}">${roe != null ? roe.toFixed(1)+'%' : '—'}</td>
+    <td class="r" style="color:${roceColor};font-weight:${roceWeight}">${roce != null ? roce.toFixed(1)+'%' : '—'}</td>
     <td class="r" style="color:${debtColor}">${debt != null ? debt.toFixed(0)+'%' : '—'}</td>
     <td class="r" style="color:${pm != null && pm >= 10 ? 'var(--green)' : 'var(--text-dim)'}">${pm != null ? pm.toFixed(1)+'%' : '—'}</td>
     <td class="r" style="color:${momentumColor};font-weight:${momentum != null && momentum > 0.2 ? 700 : 400}">${momentumStr}</td>
@@ -1345,7 +1353,7 @@ function renderTableBatched() {
   if (_renderRAF) { cancelAnimationFrame(_renderRAF); _renderRAF = null; }
 
   if (!FILTERED.length) {
-    tbody.innerHTML = '<tr><td colspan="17" class="empty-state">Aucun résultat — ajustez les filtres ▲</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="18" class="empty-state">Aucun résultat — ajustez les filtres ▲</td></tr>';
     return;
   }
 

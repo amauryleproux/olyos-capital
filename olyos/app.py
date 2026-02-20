@@ -36,6 +36,8 @@ from olyos.services.pdf_report import PDFReportService, create_pdf_report_servic
 from olyos.services.insider import InsiderService, InsiderTransaction, TransactionType, create_insider_service
 from olyos.services.rebalancing import RebalancingService, RebalanceConfig, create_rebalancing_service
 from olyos.services.ai_analysis import run_analysis as run_ai_analysis
+from olyos.services.news import get_news, get_cached_digest, generate_daily_digest
+from olyos.services.publications import get_publications, generate_publications_summary
 
 # Initialize loggers for different components
 log = get_logger('main')
@@ -44,6 +46,7 @@ log_cache = get_logger('cache')
 log_backtest = get_logger('backtest')
 log_screener = get_logger('screener')
 log_portfolio = get_logger('portfolio')
+log_news = get_logger('news')
 
 
 
@@ -5790,9 +5793,11 @@ def run_screener_eod(scope='france'):
 
             
 
-            # Get debt/equity from balance sheet
+            # Get debt/equity and ROCE from balance sheet
 
             debt_equity = None
+
+            roce = None
 
             if latest_year and latest_year in balance:
 
@@ -5805,6 +5810,26 @@ def run_screener_eod(scope='france'):
                 if equity and equity > 0:
 
                     debt_equity = total_debt / equity
+
+                # ROCE = EBIT / Capital Employed (Total Assets - Current Liabilities)
+
+                total_assets = safe_float(bs.get('totalAssets'))
+
+                current_liabilities = safe_float(bs.get('totalCurrentLiabilities'))
+
+                if total_assets and current_liabilities and total_assets > current_liabilities:
+
+                    capital_employed = total_assets - current_liabilities
+
+                    # Get EBIT from income statement (prefer ebit, fallback to operatingIncome then incomeBeforeTax)
+
+                    if latest_year in income:
+
+                        ebit_val = safe_float(income[latest_year].get('ebit')) or safe_float(income[latest_year].get('operatingIncome')) or safe_float(income[latest_year].get('incomeBeforeTax'))
+
+                        if ebit_val and capital_employed > 0:
+
+                            roce = ebit_val / capital_employed
 
             
 
@@ -5855,6 +5880,17 @@ def run_screener_eod(scope='france'):
             except Exception:
                 pass  # If momentum calculation fails, leave it as None
 
+            # Calculate P/CF (Price to Cash Flow)
+            pcf = None
+            try:
+                cashflow = financials.get('Cash_Flow', {}).get('yearly', {})
+                if latest_year and latest_year in cashflow and market_cap:
+                    op_cashflow = safe_float(cashflow[latest_year].get('totalCashFromOperatingActivities'))
+                    if op_cashflow and op_cashflow > 0:
+                        pcf = market_cap / op_cashflow
+            except Exception:
+                pass
+
 
 
             # Calculate Higgons score
@@ -5893,7 +5929,11 @@ def run_screener_eod(scope='france'):
 
                 'pe': pe,
 
+                'pcf': pcf,
+
                 'roe': roe,
+
+                'roce': roce,
 
                 'debt_equity': debt_equity,
 
@@ -5980,6 +6020,19 @@ def run_screener_yahoo():
             r['pe'] = info.get('trailingPE')
 
             r['roe'] = info.get('returnOnEquity')
+
+            # Calculate ROCE from yfinance data
+            ebit = info.get('ebitda')  # Approximate with EBITDA if EBIT not available
+            total_assets = info.get('totalAssets')
+            current_liabilities = info.get('totalCurrentLiabilities')
+            if ebit and total_assets and current_liabilities and total_assets > current_liabilities:
+                capital_employed = total_assets - current_liabilities
+                if capital_employed > 0:
+                    r['roce'] = ebit / capital_employed
+                else:
+                    r['roce'] = None
+            else:
+                r['roce'] = None
 
             r['debt_equity'] = info.get('debtToEquity')
 
@@ -7903,6 +7956,8 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 <button class="fkey" onclick="toggleHeatmapPanel()" style="background:linear-gradient(135deg,#1a1a2e,#2e1a2e);border-color:#a855f7;color:#a855f7;">F10 HEATMAP</button>
 
+<button class="fkey" onclick="location.href='/news'" style="background:linear-gradient(135deg,#1a1a2e,#0d1a2e);border-color:#00bfff;color:#00bfff;">F11 NEWS</button>
+
 </div>
 
 <div class="bb-tabs">
@@ -7914,6 +7969,8 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 <div class="bb-tab" onclick="showTab(2)">Watchlist<span class="bb-badge">{len(watchlist)}</span></div>
 
 <div class="bb-tab" onclick="showTab(3)">Backtest<span class="bb-badge" style="background:#9933ff">🔬</span></div>
+
+<div class="bb-tab" onclick="location.href='/news'">News<span class="bb-badge" style="background:#00bfff">📰</span></div>
 
 </div>
 
@@ -13370,6 +13427,7 @@ def gen_detail_html(data: Dict[str, Any]) -> str:
 <button class="bb-btn bb-btn-g" onclick="addToWatchlistDetail(this)" style="white-space:nowrap;padding:8px 16px;">+ WATCHLIST</button>
 <button class="bb-btn" onclick="toggleAlertConfig()" style="white-space:nowrap;padding:8px 16px;">🔔 ALERTS</button>
 <button id="btn-ai-analyze" class="btn-analyze" onclick="launchAnalysis('{data['ticker']}')" style="white-space:nowrap;"><span class="analyze-icon">◆</span><span class="analyze-text">Analyser</span><span class="analyze-badge">IA</span></button>
+<button id="btn-publications" class="btn-publications" onclick="document.getElementById('publications-section').scrollIntoView({{behavior:'smooth'}});loadPublications();" style="white-space:nowrap;"><span style="margin-right:4px;">📋</span><span>Publications</span></button>
 </div>
 
 </div></div>
@@ -13510,6 +13568,156 @@ def gen_detail_html(data: Dict[str, Any]) -> str:
     0%, 100% {{ opacity: 1; }}
     50% {{ opacity: 0.4; }}
 }}
+
+/* Publications Button */
+.btn-publications {{
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid #00bfff;
+    color: #00bfff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 2px;
+    text-transform: uppercase;
+    transition: all 0.2s ease;
+    letter-spacing: 0.5px;
+}}
+.btn-publications:hover {{
+    background: linear-gradient(135deg, #00bfff 0%, #0088cc 100%);
+    color: #0a0e14;
+    box-shadow: 0 0 20px rgba(0, 191, 255, 0.3);
+}}
+.btn-publications:active {{ transform: scale(0.98); }}
+
+/* Publications Section */
+.bb-publications-section {{ border-color: #1e2d3d; }}
+.bb-publications-section h3 {{ color: #00bfff; margin-bottom: 12px; }}
+.pub-next-earnings {{
+    background: #111822;
+    border: 1px solid #1e2d3d;
+    border-radius: 3px;
+    padding: 12px;
+    margin-bottom: 12px;
+}}
+.pub-next-earnings .pub-date {{
+    color: #ff9500;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}}
+.pub-next-earnings .pub-estimates {{
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}}
+.pub-next-earnings .pub-est-item {{
+    font-size: 11px;
+}}
+.pub-next-earnings .pub-est-label {{
+    color: #8b949e;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+.pub-next-earnings .pub-est-val {{
+    color: #e6edf3;
+    font-weight: 600;
+}}
+.pub-history-table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin-bottom: 12px;
+}}
+.pub-history-table th {{
+    color: #8b949e;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #1e2d3d;
+    text-align: right;
+}}
+.pub-history-table th:first-child {{ text-align: left; }}
+.pub-history-table td {{
+    padding: 5px 8px;
+    border-bottom: 1px solid #111822;
+    text-align: right;
+    color: #e6edf3;
+}}
+.pub-history-table td:first-child {{ text-align: left; color: #8b949e; }}
+.pub-history-table .surprise-pos {{ color: #00ff88; font-weight: 600; }}
+.pub-history-table .surprise-neg {{ color: #ff4444; font-weight: 600; }}
+.pub-press-list {{
+    max-height: 250px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+}}
+.pub-press-item {{
+    padding: 8px 0;
+    border-bottom: 1px solid #111822;
+}}
+.pub-press-item:last-child {{ border-bottom: none; }}
+.pub-press-item a {{
+    color: #58a6ff;
+    text-decoration: none;
+    font-size: 11px;
+    line-height: 1.4;
+}}
+.pub-press-item a:hover {{ color: #00bfff; text-decoration: underline; }}
+.pub-press-meta {{
+    font-size: 9px;
+    color: #8b949e;
+    margin-top: 2px;
+}}
+.pub-ai-summary {{
+    background: #111822;
+    border: 1px solid #1e2d3d;
+    border-left: 3px solid #ff9500;
+    border-radius: 3px;
+    padding: 12px;
+    margin-top: 12px;
+}}
+.pub-ai-summary .pub-ai-header {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}}
+.pub-ai-summary .pub-ai-title {{
+    color: #ff9500;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}}
+.pub-ai-summary .pub-ai-content {{
+    color: #e6edf3;
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}}
+.pub-btn {{
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid #333;
+    color: #8b949e;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.2s ease;
+}}
+.pub-btn:hover {{ border-color: #00bfff; color: #00bfff; }}
+.pub-btn.loading {{ opacity: 0.6; pointer-events: none; }}
 
 /* Modal Fullscreen */
 .analysis-modal {{
@@ -14118,6 +14326,50 @@ def gen_detail_html(data: Dict[str, Any]) -> str:
 <div id="dividend-empty" style="display:none;color:#666;font-size:11px;text-align:center;padding:15px;font-style:italic;">No dividend history available for this security.</div>
 </div>
 
+<div class="bb-detail-card bb-publications-section" id="publications-section">
+<h3>📋 Publications & Résultats</h3>
+<div id="pub-loading" style="display:none;color:#666;font-size:11px;text-align:center;padding:20px;">
+<span style="animation:analysePulse 1.5s infinite;display:inline-block;">Chargement des publications...</span>
+</div>
+<div id="pub-empty" style="color:#666;font-size:11px;text-align:center;padding:15px;">
+<div style="margin-bottom:8px;">Cliquez pour charger les publications de {data['ticker']}</div>
+<button class="pub-btn" onclick="loadPublications()">🔄 Charger les publications</button>
+</div>
+<div id="pub-content" style="display:none;">
+
+<div class="pub-next-earnings" id="pub-next-block" style="display:none;">
+<div style="color:#8b949e;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Prochains résultats</div>
+<div class="pub-date" id="pub-next-date">-</div>
+<div class="pub-estimates" id="pub-next-estimates"></div>
+</div>
+
+<div id="pub-history-block" style="display:none;">
+<div style="color:#8b949e;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;margin-top:12px;">Historique des résultats (EPS)</div>
+<table class="pub-history-table">
+<thead><tr><th>Date</th><th>EPS Estimé</th><th>EPS Réel</th><th>Surprise</th></tr></thead>
+<tbody id="pub-history-body"></tbody>
+</table>
+</div>
+
+<div id="pub-press-block" style="display:none;">
+<div style="color:#8b949e;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;margin-top:12px;">Communiqués de presse</div>
+<div class="pub-press-list" id="pub-press-list"></div>
+</div>
+
+<div class="pub-ai-summary" id="pub-ai-block">
+<div class="pub-ai-header">
+<span class="pub-ai-title">📊 Résumé IA</span>
+<button class="pub-btn" id="pub-ai-btn" onclick="generatePubSummary()">✨ Générer</button>
+</div>
+<div class="pub-ai-content" id="pub-ai-content" style="color:#666;font-style:italic;">Cliquez sur Générer pour obtenir un résumé IA des publications.</div>
+</div>
+
+<div style="margin-top:8px;text-align:right;">
+<button class="pub-btn" onclick="loadPublications(true)">🔄 Rafraîchir</button>
+</div>
+</div>
+</div>
+
 <div class="bb-detail-card bb-detail-desc"><h3>Business Description</h3>
 
 <p>{(data['description'][:800]+'...') if len(data['description'])>800 else data['description'] or 'No description available.'}</p>
@@ -14500,6 +14752,157 @@ function generateAIMemo() {{
 
     }});
 
+}}
+
+
+
+// ═══════════════════════════════════════════════════
+// PUBLICATIONS FUNCTIONS
+// ═══════════════════════════════════════════════════
+
+let _pubLoaded = false;
+
+function loadPublications(forceRefresh) {{
+    const loading = document.getElementById('pub-loading');
+    const empty = document.getElementById('pub-empty');
+    const content = document.getElementById('pub-content');
+
+    if (_pubLoaded && !forceRefresh) {{
+        content.style.display = 'block';
+        empty.style.display = 'none';
+        return;
+    }}
+
+    loading.style.display = 'block';
+    empty.style.display = 'none';
+    content.style.display = 'none';
+
+    const url = forceRefresh
+        ? '/?action=get_publications&ticker={data["ticker"]}&force=1'
+        : '/?action=get_publications&ticker={data["ticker"]}';
+
+    fetch(url, {{ method: 'POST' }})
+        .then(r => r.json())
+        .then(result => {{
+            loading.style.display = 'none';
+            if (!result.success && result.error) {{
+                empty.style.display = 'block';
+                empty.innerHTML = '<div style="color:#ff4444;">' + result.error + '</div>';
+                return;
+            }}
+
+            _pubLoaded = true;
+            content.style.display = 'block';
+
+            // --- Next Earnings ---
+            const nextBlock = document.getElementById('pub-next-block');
+            const next = result.next_earnings || {{}};
+            if (next.date) {{
+                nextBlock.style.display = 'block';
+                document.getElementById('pub-next-date').textContent = next.date;
+                let estHtml = '';
+                if (next.eps_estimate_avg != null) {{
+                    estHtml += '<div class="pub-est-item"><div class="pub-est-label">EPS Estimé</div><div class="pub-est-val">' + next.eps_estimate_avg + '</div></div>';
+                }}
+                if (next.eps_estimate_low != null && next.eps_estimate_high != null) {{
+                    estHtml += '<div class="pub-est-item"><div class="pub-est-label">Range EPS</div><div class="pub-est-val">' + next.eps_estimate_low + ' — ' + next.eps_estimate_high + '</div></div>';
+                }}
+                if (next.revenue_estimate_avg != null) {{
+                    const rev = next.revenue_estimate_avg > 1e6 ? (next.revenue_estimate_avg / 1e6).toFixed(0) + 'M' : next.revenue_estimate_avg;
+                    estHtml += '<div class="pub-est-item"><div class="pub-est-label">CA Estimé</div><div class="pub-est-val">' + rev + '</div></div>';
+                }}
+                document.getElementById('pub-next-estimates').innerHTML = estHtml;
+            }}
+
+            // --- Earnings History ---
+            const histBlock = document.getElementById('pub-history-block');
+            const hist = result.earnings_history || [];
+            if (hist.length > 0) {{
+                histBlock.style.display = 'block';
+                let tbody = '';
+                hist.forEach(function(h) {{
+                    const estStr = h.eps_estimate != null ? h.eps_estimate.toFixed(3) : 'N/D';
+                    const actStr = h.eps_actual != null ? h.eps_actual.toFixed(3) : 'N/D';
+                    let surpriseCls = '';
+                    let surpriseStr = 'N/D';
+                    if (h.surprise_pct != null) {{
+                        surpriseCls = h.surprise_pct >= 0 ? 'surprise-pos' : 'surprise-neg';
+                        surpriseStr = (h.surprise_pct >= 0 ? '+' : '') + h.surprise_pct.toFixed(1) + '%';
+                    }}
+                    tbody += '<tr><td>' + h.date + '</td><td>' + estStr + '</td><td>' + actStr + '</td><td class="' + surpriseCls + '">' + surpriseStr + '</td></tr>';
+                }});
+                document.getElementById('pub-history-body').innerHTML = tbody;
+            }}
+
+            // --- Press Releases ---
+            const pressBlock = document.getElementById('pub-press-block');
+            const press = result.press_releases || [];
+            if (press.length > 0) {{
+                pressBlock.style.display = 'block';
+                let pressHtml = '';
+                press.forEach(function(p) {{
+                    const link = p.link ? '<a href="' + p.link + '" target="_blank">' + p.title + '</a>' : p.title;
+                    pressHtml += '<div class="pub-press-item">' + link + '<div class="pub-press-meta">' + (p.date || '') + (p.publisher ? ' — ' + p.publisher : '') + '</div></div>';
+                }});
+                document.getElementById('pub-press-list').innerHTML = pressHtml;
+            }}
+
+            // --- AI Summary (if cached) ---
+            if (result.ai_summary) {{
+                document.getElementById('pub-ai-content').textContent = result.ai_summary;
+                document.getElementById('pub-ai-content').style.color = '#e6edf3';
+                document.getElementById('pub-ai-content').style.fontStyle = 'normal';
+                document.getElementById('pub-ai-btn').textContent = '🔄 Régénérer';
+            }}
+
+            // Show message if no data at all
+            if (!next.date && hist.length === 0 && press.length === 0) {{
+                content.style.display = 'none';
+                empty.style.display = 'block';
+                empty.innerHTML = '<div style="color:#666;font-style:italic;">Aucune publication disponible pour {data["ticker"]}.</div>';
+            }}
+        }})
+        .catch(err => {{
+            loading.style.display = 'none';
+            empty.style.display = 'block';
+            empty.innerHTML = '<div style="color:#ff4444;">Erreur: ' + err + '</div>';
+        }});
+}}
+
+function generatePubSummary() {{
+    const btn = document.getElementById('pub-ai-btn');
+    const contentEl = document.getElementById('pub-ai-content');
+    const origText = btn.textContent;
+
+    btn.textContent = '⏳ Génération...';
+    btn.classList.add('loading');
+    contentEl.textContent = 'Analyse en cours avec Claude IA...';
+    contentEl.style.color = '#ff9500';
+    contentEl.style.fontStyle = 'italic';
+
+    fetch('/?action=generate_publications_summary&ticker={data["ticker"]}', {{
+        method: 'POST'
+    }})
+    .then(r => r.json())
+    .then(result => {{
+        btn.classList.remove('loading');
+        if (result.success) {{
+            contentEl.textContent = result.summary;
+            contentEl.style.color = '#e6edf3';
+            contentEl.style.fontStyle = 'normal';
+            btn.textContent = '🔄 Régénérer';
+        }} else {{
+            contentEl.textContent = 'Erreur: ' + (result.error || 'Erreur inconnue');
+            contentEl.style.color = '#ff4444';
+            btn.textContent = origText;
+        }}
+    }})
+    .catch(err => {{
+        btn.classList.remove('loading');
+        contentEl.textContent = 'Erreur: ' + err;
+        contentEl.style.color = '#ff4444';
+        btn.textContent = origText;
+    }});
 }}
 
 
@@ -14986,7 +15389,44 @@ class Handler(SimpleHTTPRequestHandler):
 
             return
 
+        if q.get('action') == ['generate_news_digest']:
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
 
+            if not ANTHROPIC_OK:
+                response = json.dumps({'success': False, 'error': 'API Anthropic non configurée. Définir ANTHROPIC_API_KEY.'})
+            else:
+                try:
+                    # Get portfolio/watchlist tickers
+                    portfolio_tickers = []
+                    watchlist_tickers = []
+                    try:
+                        df, _ = load_portfolio()
+                        if df is not None and not df.empty:
+                            portfolio_tickers = df['Ticker'].tolist() if 'Ticker' in df.columns else []
+                    except Exception:
+                        pass
+                    try:
+                        wl = load_watchlist()
+                        watchlist_tickers = [w.get('ticker', '') for w in wl if w.get('ticker')]
+                    except Exception:
+                        pass
+
+                    all_tickers = list(set(portfolio_tickers + watchlist_tickers))
+                    articles = get_news(
+                        known_tickers=all_tickers,
+                        portfolio_tickers=portfolio_tickers,
+                        watchlist_tickers=watchlist_tickers,
+                    )
+                    result = generate_daily_digest(articles, ANTHROPIC_API_KEY)
+                    response = json.dumps(result, ensure_ascii=False)
+                except Exception as e:
+                    log_news.error(f"Error generating digest: {e}", exc_info=True)
+                    response = json.dumps({'success': False, 'error': str(e)})
+
+            self.wfile.write(response.encode('utf-8'))
+            return
 
         if q.get('action') == ['analyze_stock']:
 
@@ -15034,6 +15474,65 @@ class Handler(SimpleHTTPRequestHandler):
 
             self.wfile.write(response.encode('utf-8'))
 
+            return
+
+        # ─── Publications: get data ───
+        if q.get('action') == ['get_publications']:
+            ticker = q.get('ticker', [''])[0]
+            force_refresh = q.get('force', [''])[0] == '1'
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            if not ticker:
+                response = json.dumps({'success': False, 'error': 'Ticker manquant'})
+            else:
+                try:
+                    result = get_publications(
+                        ticker=ticker,
+                        eod_api_key=EOD_API_KEY if EOD_OK else None,
+                        force_refresh=force_refresh
+                    )
+                    result['success'] = True
+                    response = json.dumps(result, ensure_ascii=False, default=str)
+                except Exception as e:
+                    log.error(f"Error fetching publications for {ticker}: {e}", exc_info=True)
+                    response = json.dumps({'success': False, 'error': str(e)})
+
+            self.wfile.write(response.encode('utf-8'))
+            return
+
+        # ─── Publications: generate AI summary ───
+        if q.get('action') == ['generate_publications_summary']:
+            ticker = q.get('ticker', [''])[0]
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            if not ticker:
+                response = json.dumps({'success': False, 'error': 'Ticker manquant'})
+            elif not ANTHROPIC_OK:
+                response = json.dumps({'success': False, 'error': 'API Anthropic non configurée. Définir ANTHROPIC_API_KEY.'})
+            else:
+                try:
+                    # First get the publications data (from cache if available)
+                    pub_data = get_publications(
+                        ticker=ticker,
+                        eod_api_key=EOD_API_KEY if EOD_OK else None
+                    )
+                    result = generate_publications_summary(
+                        ticker=ticker,
+                        publications_data=pub_data,
+                        api_key=ANTHROPIC_API_KEY
+                    )
+                    response = json.dumps(result, ensure_ascii=False)
+                except Exception as e:
+                    log.error(f"Error generating publications summary for {ticker}: {e}", exc_info=True)
+                    response = json.dumps({'success': False, 'error': str(e)})
+
+            self.wfile.write(response.encode('utf-8'))
             return
 
 
@@ -16939,6 +17438,80 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         
+
+        # ═══ SERVE NEWS PAGE ═══
+
+        if p.path in ('/news', '/news/'):
+            possible_paths = [
+                os.path.join(os.path.dirname(__file__), 'templates', 'news.html'),
+            ]
+            news_html = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    news_html = path
+                    break
+            if news_html:
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.send_header('Cache-Control', 'no-cache')
+                self.end_headers()
+                with open(news_html, 'r', encoding='utf-8') as f:
+                    self.wfile.write(f.read().encode())
+                return
+
+        # ═══ NEWS API — GET articles ═══
+
+        if q.get('action') == ['news_articles']:
+            try:
+                # Get portfolio and watchlist tickers for enrichment
+                portfolio_tickers = []
+                watchlist_tickers = []
+                try:
+                    df, _ = load_portfolio()
+                    if df is not None and not df.empty:
+                        portfolio_tickers = df['Ticker'].tolist() if 'Ticker' in df.columns else []
+                except Exception:
+                    pass
+                try:
+                    wl = load_watchlist()
+                    watchlist_tickers = [w.get('ticker', '') for w in wl if w.get('ticker')]
+                except Exception:
+                    pass
+
+                all_tickers = list(set(portfolio_tickers + watchlist_tickers))
+                articles = get_news(
+                    known_tickers=all_tickers,
+                    portfolio_tickers=portfolio_tickers,
+                    watchlist_tickers=watchlist_tickers,
+                )
+
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'articles': articles,
+                    'count': len(articles),
+                }, ensure_ascii=False).encode('utf-8'))
+            except Exception as e:
+                log_news.error(f"Error fetching news: {e}", exc_info=True)
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'articles': [], 'error': str(e)}).encode())
+            return
+
+        # ═══ NEWS API — GET cached digest ═══
+
+        if q.get('action') == ['news_digest']:
+            digest = get_cached_digest()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            if digest:
+                self.wfile.write(json.dumps(digest, ensure_ascii=False).encode('utf-8'))
+            else:
+                self.wfile.write(json.dumps({'success': False, 'error': 'Aucun digest en cache'}).encode())
+            return
 
         # ═══ SERVE SCREENER V2 PAGE ═══
 
