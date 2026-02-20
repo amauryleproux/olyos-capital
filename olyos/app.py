@@ -10,7 +10,7 @@ _parent_dir = os.path.dirname(_current_dir)
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
-import json, webbrowser, threading, math, glob, html
+import json, webbrowser, threading, math, glob, html, tempfile
 
 from datetime import datetime, timedelta
 
@@ -36,6 +36,12 @@ from olyos.services.pdf_report import PDFReportService, create_pdf_report_servic
 from olyos.services.insider import InsiderService, InsiderTransaction, TransactionType, create_insider_service
 from olyos.services.rebalancing import RebalancingService, RebalanceConfig, create_rebalancing_service
 from olyos.services.ai_analysis import run_analysis as run_ai_analysis
+try:
+    from olyos.olyos_portfolio_advisor import run_analysis as run_portfolio_advisor_analysis
+    PORTFOLIO_ADVISOR_OK = True
+except Exception:
+    run_portfolio_advisor_analysis = None
+    PORTFOLIO_ADVISOR_OK = False
 
 # Initialize loggers for different components
 log = get_logger('main')
@@ -4739,6 +4745,52 @@ def load_portfolio() -> Tuple[Optional[Any], Optional[str]]:
         return None, str(e)
 
 
+def build_advisor_portfolio_payload(df: Any, cash: float = 0.0, currency: str = 'EUR') -> Dict[str, Any]:
+
+    """Convert current portfolio dataframe to advisor JSON payload."""
+
+    positions: List[Dict[str, Any]] = []
+
+    for _, row in df.iterrows():
+
+        ticker = str(row.get('ticker', '') or '').strip().upper()
+        if not ticker:
+            continue
+
+        qty = safe_float(row.get('qty', row.get('shares', row.get('quantity', 0)))) or 0.0
+        if qty <= 0:
+            continue
+
+        avg_price = (
+            safe_float(row.get('avg_cost_eur', row.get('avg_price', row.get('average_price'))))
+            or 0.0
+        )
+        current_price = safe_float(row.get('price_eur', row.get('current_price')))
+
+        category = str(row.get('category', row.get('style', 'mixte')) or 'mixte').strip().lower()
+        if category not in ['value', 'croissance', 'cyclique', 'mixte']:
+            category = 'mixte'
+
+        positions.append({
+            'ticker': ticker,
+            'name': str(row.get('name', '') or '').strip() or None,
+            'isin': str(row.get('isin', '') or '').strip() or None,
+            'category': category,
+            'shares': qty,
+            'avg_price': avg_price,
+            'current_price': current_price,
+            'sector': str(row.get('sector', '') or '').strip() or None,
+            'country': str(row.get('country', '') or '').strip() or None,
+            'notes': str(row.get('notes', row.get('thesis', '')) or '').strip() or None,
+        })
+
+    return {
+        'portfolio': positions,
+        'cash': float(cash or 0.0),
+        'currency': str(currency or 'EUR').upper(),
+    }
+
+
 def save_portfolio(df):
     """Save portfolio DataFrame to Excel"""
     try:
@@ -6893,7 +6945,7 @@ tr:hover{background:#111}tr:hover td{color:#fff}
 
 .bb-backtest-field textarea{resize:vertical;font-size:11px}
 
-.bb-backtest-actions{display:flex;gap:12px;margin-top:16px}
+.bb-backtest-actions{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
 
 .bb-btn-lg{padding:12px 24px;font-size:13px;font-weight:600}
 
@@ -7007,6 +7059,12 @@ tr:hover{background:#111}tr:hover td{color:#fff}
 
 .bb-btn-ai:disabled{opacity:0.5;cursor:not-allowed}
 
+.bb-btn-advisor{background:linear-gradient(180deg,#005577,#003f5a);border-color:#00bfff;color:#fff}
+
+.bb-btn-advisor:hover{background:linear-gradient(180deg,#00668d,#004b6a)}
+
+.bb-btn-advisor:disabled{opacity:0.5;cursor:not-allowed}
+
 .bb-opt-goal{background:#1a1a1a;border:1px solid #333;color:#fff;padding:8px 12px;font-family:inherit;font-size:11px;margin-left:8px}
 
 .bb-ai-results{background:linear-gradient(180deg,#0d001a,#000);border:2px solid #9933ff;padding:20px;margin-top:16px}
@@ -7046,6 +7104,19 @@ tr:hover{background:#111}tr:hover td{color:#fff}
 .bb-ai-analysis h4,.bb-ai-explanation h4{color:#ff9500;font-size:11px;margin:0 0 12px 0}
 
 .bb-ai-analysis-text,.bb-ai-explanation div{color:#ccc;font-size:12px;line-height:1.6}
+
+.bb-advisor-report{
+  white-space:pre-wrap;
+  font-family:'JetBrains Mono',monospace;
+  font-size:11px;
+  line-height:1.6;
+  color:#cfd8e3;
+  background:#070b12;
+  border:1px solid #1f2d3a;
+  padding:14px;
+  max-height:560px;
+  overflow:auto
+}
 
 .bb-ai-warnings{background:#1a0a00;border:1px solid #ff6600;padding:16px;margin-bottom:16px}
 
@@ -7902,6 +7973,8 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 <button class="fkey" onclick="toggleRebalancePanel()" style="background:linear-gradient(135deg,#2e1a1a,#3e1616);border-color:#f59e0b;color:#f59e0b;">F9 REBALANCE</button>
 
 <button class="fkey" onclick="toggleHeatmapPanel()" style="background:linear-gradient(135deg,#1a1a2e,#2e1a2e);border-color:#a855f7;color:#a855f7;">F10 HEATMAP</button>
+
+<button class="fkey" id="fkey-advisor" onclick="location.href='/advisor'" style="background:linear-gradient(135deg,#0f2533,#143042);border-color:#22d3ee;color:#22d3ee;" {'disabled' if not PORTFOLIO_ADVISOR_OK else ''}>F11 ADVISOR</button>
 
 </div>
 
@@ -11175,6 +11248,11 @@ function runAIOptimize() {{
 
 
 
+function runPortfolioAdvisor() {{
+    window.location.href = '/advisor';
+}}
+
+
 function displayAIResults(data) {{
 
     document.getElementById('ai-results').style.display = 'block';
@@ -13067,10 +13145,120 @@ document.addEventListener('keydown', function(e) {{
         toggleHeatmapPanel();
     }}
 }});
+
+// Keyboard shortcut for F11
+document.addEventListener('keydown', function(e) {{
+    if (e.key === 'F11') {{
+        e.preventDefault();
+        runPortfolioAdvisor();
+    }}
+}});
 </script>
 
 </body></html>'''
 
+
+
+def gen_advisor_html() -> str:
+    """Dedicated page for Portfolio Advisor."""
+
+    advisor_ok = 'true' if PORTFOLIO_ADVISOR_OK else 'false'
+    anthropic_ok = 'true' if ANTHROPIC_OK else 'false'
+
+    return f'''<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Olyos Capital — Portfolio Advisor</title>
+<style>{BLOOMBERG_CSS}
+.bb-advisor-page{{padding:16px}}
+.bb-advisor-card{{background:#0a0a0a;border:1px solid #333;padding:16px}}
+.bb-advisor-title{{color:#22d3ee;font-size:16px;font-weight:700;margin:0 0 12px 0;letter-spacing:1px}}
+.bb-advisor-controls{{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}}
+.bb-advisor-check{{display:flex;align-items:center;gap:6px;color:#9ca3af;font-size:11px}}
+.bb-advisor-run{{background:linear-gradient(135deg,#0f2533,#143042);border:1px solid #22d3ee;color:#22d3ee;padding:8px 14px;cursor:pointer;font-family:inherit;font-size:11px}}
+.bb-advisor-run:disabled{{opacity:.5;cursor:not-allowed}}
+.bb-advisor-status{{color:#888;font-size:11px;margin-bottom:10px}}
+.bb-advisor-report{{white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;color:#cfd8e3;background:#070b12;border:1px solid #1f2d3a;padding:14px;min-height:420px;max-height:70vh;overflow:auto}}
+.bb-advisor-meta{{margin-top:10px;color:#6b7280;font-size:10px}}
+</style></head><body>
+<div class="bb-top">
+<div class="bb-logo"><svg viewBox="0 0 24 24" fill="#22d3ee"><rect x="2" y="2" width="8" height="8"/><rect x="14" y="2" width="8" height="8"/><rect x="2" y="14" width="8" height="8"/><rect x="14" y="14" width="8" height="8"/></svg><h1>OLYOS CAPITAL</h1><span>PORTFOLIO ADVISOR</span></div>
+<input type="text" class="bb-cmd" placeholder="Enter ticker..." onkeydown="if(event.key==='Enter')location.href='/?detail='+this.value.toUpperCase()"/>
+<div class="bb-time">{datetime.now().strftime('%H:%M:%S')} CET <span class="blink">●</span></div>
+</div>
+<div class="bb-fkeys">
+<button class="fkey" onclick="location.href='/'">F1 PORT</button>
+<button class="fkey" onclick="location.href='/screener'">F2 SCRN</button>
+<button class="fkey" onclick="location.href='/advisor'">F5 REFRESH</button>
+<button class="fkey active" onclick="runAdvisorAnalysis()">F11 ADVISOR</button>
+</div>
+<div class="bb-advisor-page">
+<div class="bb-advisor-card">
+<h2 class="bb-advisor-title">Portfolio Advisor Analysis</h2>
+<div class="bb-advisor-controls">
+<button id="advisor-run-btn" class="bb-advisor-run" onclick="runAdvisorAnalysis()" {'disabled' if not PORTFOLIO_ADVISOR_OK else ''}>RUN ADVISOR</button>
+<label class="bb-advisor-check"><input type="checkbox" id="advisor-use-llm" {'checked' if ANTHROPIC_OK else ''} {'disabled' if not ANTHROPIC_OK else ''}>Use Claude</label>
+<label class="bb-advisor-check"><input type="checkbox" id="advisor-refresh-prices">Live prices (Yahoo)</label>
+</div>
+<div id="advisor-status" class="bb-advisor-status">{'Advisor module unavailable.' if not PORTFOLIO_ADVISOR_OK else 'Ready.'}</div>
+<div id="advisor-report-text" class="bb-advisor-report">Click "RUN ADVISOR" to generate the portfolio analysis.</div>
+<div id="advisor-meta" class="bb-advisor-meta"></div>
+</div>
+</div>
+<script>
+const advisorAvailable = {advisor_ok};
+const anthropicAvailable = {anthropic_ok};
+
+function runAdvisorAnalysis() {{
+    if (!advisorAvailable) {{
+        alert('Portfolio advisor module unavailable.');
+        return;
+    }}
+
+    const btn = document.getElementById('advisor-run-btn');
+    const status = document.getElementById('advisor-status');
+    const reportBox = document.getElementById('advisor-report-text');
+    const metaEl = document.getElementById('advisor-meta');
+    const useLLM = document.getElementById('advisor-use-llm').checked && anthropicAvailable;
+    const refreshPrices = document.getElementById('advisor-refresh-prices').checked;
+
+    btn.disabled = true;
+    btn.textContent = 'RUNNING...';
+    status.textContent = 'Analyzing portfolio...';
+
+    fetch('/?action=portfolio_advisor', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{
+            use_llm: useLLM,
+            refresh_prices: refreshPrices,
+            currency: 'EUR'
+        }})
+    }})
+    .then(r => r.json())
+    .then(data => {{
+        if (!data.success) {{
+            throw new Error(data.error || 'Advisor error');
+        }}
+        reportBox.textContent = data.report_markdown || 'No report generated';
+        status.textContent = 'Analysis completed.';
+        metaEl.textContent = 'LLM: ' + (data.llm_used ? 'ON' : 'OFF') + ' | Prices: ' + (data.refresh_prices ? 'LIVE' : 'LOCAL') + ' | Report: ' + (data.report_path || 'n/a');
+    }})
+    .catch(err => {{
+        status.textContent = 'Error';
+        reportBox.textContent = 'Portfolio advisor error: ' + err.message;
+    }})
+    .finally(() => {{
+        btn.disabled = false;
+        btn.textContent = 'RUN ADVISOR';
+    }});
+}}
+
+document.addEventListener('keydown', function(e) {{
+    if (e.key === 'F1') {{ e.preventDefault(); location.href = '/'; }}
+    if (e.key === 'F2') {{ e.preventDefault(); location.href = '/screener'; }}
+    if (e.key === 'F5') {{ e.preventDefault(); location.href = '/advisor'; }}
+    if (e.key === 'F11') {{ e.preventDefault(); runAdvisorAnalysis(); }}
+}});
+</script>
+</body></html>'''
 
 
 def gen_detail_html(data: Dict[str, Any]) -> str:
@@ -15038,6 +15226,78 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 
+        if q.get('action') == ['portfolio_advisor']:
+
+            self.send_response(200)
+
+            self.send_header('Content-type', 'application/json')
+
+            self.end_headers()
+
+            if not PORTFOLIO_ADVISOR_OK:
+                response = json.dumps({
+                    'success': False,
+                    'error': 'Portfolio advisor indisponible (module ou dependances manquantes).'
+                })
+                self.wfile.write(response.encode('utf-8'))
+                return
+
+            temp_json_path = None
+
+            try:
+                body = json.loads(post_data) if post_data else {}
+            except Exception:
+                body = {}
+
+            try:
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(err or "Could not load portfolio")
+
+                use_llm = bool(body.get('use_llm', True)) and ANTHROPIC_OK
+                refresh_prices = bool(body.get('refresh_prices', False))
+                cash = safe_float(body.get('cash', 0.0)) or 0.0
+                currency = str(body.get('currency', 'EUR') or 'EUR').upper()
+
+                payload = build_advisor_portfolio_payload(df, cash=cash, currency=currency)
+                if not payload.get('portfolio'):
+                    raise Exception("No active positions found in portfolio")
+
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as tmpf:
+                    json.dump(payload, tmpf, ensure_ascii=False, indent=2)
+                    temp_json_path = tmpf.name
+
+                result = run_portfolio_advisor_analysis(
+                    portfolio_path=temp_json_path,
+                    use_llm=use_llm,
+                    verbose=False,
+                    render_output=False,
+                    fetch_prices_enabled=refresh_prices,
+                )
+
+                response = json.dumps({
+                    'success': True,
+                    'report_markdown': result.get('report_markdown', ''),
+                    'report_path': result.get('report_path'),
+                    'scratchpad_path': result.get('scratchpad_path'),
+                    'llm_used': bool(result.get('llm_used', False)),
+                    'refresh_prices': refresh_prices,
+                }, ensure_ascii=False)
+            except Exception as e:
+                log.error(f"Portfolio advisor error: {e}")
+                response = json.dumps({'success': False, 'error': str(e)}, ensure_ascii=False)
+            finally:
+                if temp_json_path and os.path.exists(temp_json_path):
+                    try:
+                        os.remove(temp_json_path)
+                    except Exception:
+                        pass
+
+            self.wfile.write(response.encode('utf-8'))
+
+            return
+
+
         if q.get('action') == ['run_backtest']:
 
             try:
@@ -16940,6 +17200,17 @@ class Handler(SimpleHTTPRequestHandler):
 
         
 
+        # ═══ SERVE ADVISOR PAGE ═══
+
+        if p.path in ('/advisor', '/advisor/'):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(gen_advisor_html().encode())
+            return
+
+
         # ═══ SERVE SCREENER V2 PAGE ═══
 
         if p.path in ('/screener', '/screener/'):
@@ -17093,4 +17364,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
 
         log.info("Bye")
-
