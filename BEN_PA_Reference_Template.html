@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OLYOS CAPITAL — BEN.PA Equity Research</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-primary: #0a0e14;
+    --bg-secondary: #111822;
+    --bg-tertiary: #1a2332;
+    --border: #1e2d3d;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --green: #00ff88;
+    --green-dim: #00cc6a;
+    --red: #ff4444;
+    --red-dim: #cc3333;
+    --orange: #ff9500;
+    --orange-dim: #cc7700;
+    --yellow: #ffd700;
+    --blue: #58a6ff;
+    --cyan: #00d4ff;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .terminal-header {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .terminal-header .logo {
+    color: var(--green);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 2px;
+  }
+
+  .terminal-header .meta {
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+
+  .terminal-header .meta span { color: var(--orange); }
+
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+
+  /* Ticker Header */
+  .ticker-header {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 24px;
+    margin-bottom: 12px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .ticker-info h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  .ticker-info h1 .ticker { color: var(--orange); }
+  .ticker-info .subtitle { color: var(--text-secondary); font-size: 11px; }
+
+  .price-block {
+    text-align: right;
+  }
+
+  .price-block .price {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--red);
+  }
+
+  .price-block .price-eur { color: var(--text-muted); font-size: 14px; }
+
+  .price-block .change {
+    color: var(--red);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .price-block .asof {
+    color: var(--text-muted);
+    font-size: 9px;
+    margin-top: 4px;
+  }
+
+  /* Verdict Banner */
+  .verdict-banner {
+    background: linear-gradient(135deg, #1a2332 0%, #0f1922 100%);
+    border: 1px solid var(--orange);
+    border-left: 4px solid var(--orange);
+    border-radius: 4px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+
+  .verdict-banner .verdict-label {
+    color: var(--orange);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .verdict-banner .verdict-text {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.7;
+  }
+
+  /* Grid Layouts */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  @media (max-width: 900px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+
+  /* Panel */
+  .panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .panel-title {
+    background: var(--bg-tertiary);
+    padding: 8px 14px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--green);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-body {
+    padding: 14px;
+  }
+
+  /* Key Metrics Table */
+  .metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(30,45,61,0.5);
+  }
+
+  .metric-row:last-child { border-bottom: none; }
+
+  .metric-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+
+  .metric-value {
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  .metric-value.good { color: var(--green); }
+  .metric-value.warning { color: var(--orange); }
+  .metric-value.bad { color: var(--red); }
+  .metric-value.neutral { color: var(--text-primary); }
+
+  /* Higgons Score */
+  .higgons-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .higgons-criteria {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--bg-primary);
+    border-radius: 3px;
+    border-left: 3px solid transparent;
+  }
+
+  .higgons-criteria.pass { border-left-color: var(--green); }
+  .higgons-criteria.fail { border-left-color: var(--red); }
+  .higgons-criteria.partial { border-left-color: var(--orange); }
+
+  .criteria-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .criteria-icon.pass { background: rgba(0,255,136,0.15); color: var(--green); }
+  .criteria-icon.fail { background: rgba(255,68,68,0.15); color: var(--red); }
+  .criteria-icon.partial { background: rgba(255,149,0,0.15); color: var(--orange); }
+
+  .criteria-name { font-size: 11px; color: var(--text-primary); }
+  .criteria-target { font-size: 10px; color: var(--text-muted); }
+  .criteria-actual { font-size: 11px; font-weight: 600; }
+
+  /* Score Badge */
+  .score-badge {
+    text-align: center;
+    padding: 16px;
+    margin-top: 10px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+  }
+
+  .score-badge .score-num {
+    font-size: 36px;
+    font-weight: 700;
+  }
+
+  .score-badge .score-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* Financial Table */
+  .fin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+
+  .fin-table th {
+    text-align: right;
+    padding: 6px 8px;
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .fin-table th:first-child { text-align: left; }
+
+  .fin-table td {
+    text-align: right;
+    padding: 5px 8px;
+    border-bottom: 1px solid rgba(30,45,61,0.3);
+  }
+
+  .fin-table td:first-child {
+    text-align: left;
+    color: var(--text-secondary);
+  }
+
+  .fin-table tr:hover { background: rgba(0,255,136,0.02); }
+
+  /* SWOT */
+  .swot-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .swot-box {
+    padding: 12px;
+    border-radius: 3px;
+    background: var(--bg-primary);
+  }
+
+  .swot-box h4 {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .swot-box.strength h4 { color: var(--green); }
+  .swot-box.weakness h4 { color: var(--red); }
+  .swot-box.opportunity h4 { color: var(--blue); }
+  .swot-box.threat h4 { color: var(--orange); }
+
+  .swot-box ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .swot-box li {
+    font-size: 10px;
+    color: var(--text-secondary);
+    padding: 3px 0;
+    padding-left: 12px;
+    position: relative;
+    line-height: 1.5;
+  }
+
+  .swot-box li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    font-weight: 700;
+  }
+
+  .swot-box.strength li::before { color: var(--green); }
+  .swot-box.weakness li::before { color: var(--red); }
+  .swot-box.opportunity li::before { color: var(--blue); }
+  .swot-box.threat li::before { color: var(--orange); }
+
+  /* Target Price */
+  .target-bar {
+    margin: 16px 0;
+    position: relative;
+    height: 40px;
+  }
+
+  .target-track {
+    position: absolute;
+    top: 16px;
+    left: 0;
+    right: 0;
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .target-fill {
+    height: 100%;
+    border-radius: 4px;
+  }
+
+  .target-markers {
+    position: relative;
+    height: 40px;
+  }
+
+  .target-marker {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    text-align: center;
+  }
+
+  .target-marker .marker-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin: 0 auto 4px;
+  }
+
+  .target-marker .marker-label {
+    font-size: 9px;
+    color: var(--text-muted);
+  }
+
+  .target-marker .marker-value {
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  /* Narrative Section */
+  .narrative {
+    padding: 14px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.8;
+  }
+
+  .narrative p { margin-bottom: 10px; }
+  .narrative strong { color: var(--text-primary); }
+  .narrative .highlight-green { color: var(--green); }
+  .narrative .highlight-red { color: var(--red); }
+  .narrative .highlight-orange { color: var(--orange); }
+
+  /* Section Title */
+  .section-title {
+    color: var(--green);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin: 20px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Separator */
+  .sep {
+    height: 1px;
+    background: var(--border);
+    margin: 16px 0;
+  }
+
+  /* Tag */
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .tag.buy { background: rgba(0,255,136,0.12); color: var(--green); border: 1px solid rgba(0,255,136,0.3); }
+  .tag.hold { background: rgba(255,149,0,0.12); color: var(--orange); border: 1px solid rgba(255,149,0,0.3); }
+  .tag.sell { background: rgba(255,68,68,0.12); color: var(--red); border: 1px solid rgba(255,68,68,0.3); }
+  .tag.info { background: rgba(88,166,255,0.12); color: var(--blue); border: 1px solid rgba(88,166,255,0.3); }
+
+  /* Progress Bar */
+  .progress-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+  }
+
+  .progress-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--bg-primary);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s;
+  }
+
+  .progress-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    min-width: 30px;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 24px;
+    padding: 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 9px;
+    border-top: 1px solid var(--border);
+  }
+
+  .footer .disclaimer {
+    max-width: 800px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* Blink animation for live indicator */
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+  }
+
+  .live-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: blink 1.5s infinite;
+    margin-right: 4px;
+  }
+
+  /* Full width panel */
+  .full-width { margin-bottom: 12px; }
+</style>
+</head>
+<body>
+
+<!-- Terminal Header -->
+<div class="terminal-header">
+  <div class="logo">◆ OLYOS CAPITAL</div>
+  <div class="meta">
+    EQUITY RESEARCH &nbsp;│&nbsp; <span>BEN.PA</span> &nbsp;│&nbsp; Euronext Paris &nbsp;│&nbsp; 07 FEB 2026
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Ticker Header -->
+  <div class="ticker-header">
+    <div class="ticker-info">
+      <h1>BÉNÉTEAU S.A. <span class="ticker">BEN.PA</span></h1>
+      <div class="subtitle">
+        Euronext Paris &nbsp;│&nbsp; ISIN: FR0000035164 &nbsp;│&nbsp; Secteur: Consommation Discrétionnaire &nbsp;│&nbsp; Nautisme
+      </div>
+      <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+        <span class="tag hold">WATCHLIST — PAS ENCORE ÉLIGIBLE HIGGONS</span>
+        <span class="tag info">SMALL CAP</span>
+        <span class="tag info">CYCLIQUE</span>
+      </div>
+    </div>
+    <div class="price-block">
+      <div class="price">7,83<span class="price-eur"> €</span></div>
+      <div class="change">▼ -1,66% (-0,13€) jour</div>
+      <div class="asof"><span class="live-dot"></span>Euronext Paris — 06/02/2026</div>
+    </div>
+  </div>
+
+  <!-- Verdict Banner -->
+  <div class="verdict-banner">
+    <div class="verdict-label">▎ Verdict Méthode Higgons — Synthèse</div>
+    <div class="verdict-text">
+      Bénéteau coche <strong style="color: var(--green);">3 critères sur 5</strong> de la méthode Higgons (PER bas, small cap, dette faible). 
+      Le titre est indéniablement <strong>value sur les métriques historiques 2024</strong> (PER ~7x, P/B 0.85, trésorerie nette de 357M€). 
+      Cependant, <strong style="color: var(--red);">le momentum est clairement baissier</strong> et <strong style="color: var(--red);">le ROE se dégrade fortement en 2025</strong> avec un résultat opérationnel proche de zéro. 
+      C'est un dossier à mettre en <strong style="color: var(--orange);">watchlist</strong> pour un point d'entrée quand le retournement cyclique sera confirmé (S2 2025 / 2026).
+    </div>
+  </div>
+
+  <!-- Row 1: Key Metrics + Higgons Score -->
+  <div class="grid-2">
+    <!-- Key Metrics -->
+    <div class="panel">
+      <div class="panel-title">◆ Métriques Clés</div>
+      <div class="panel-body">
+        <div class="metric-row">
+          <span class="metric-label">Capitalisation</span>
+          <span class="metric-value neutral">632 M€</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Cours / Point bas 52s</span>
+          <span class="metric-value warning">6,68€ → 7,83€ (+17%)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Cours / Point haut 52s</span>
+          <span class="metric-value bad">10,70€ → 7,83€ (-27%)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">PER 2024 (historique)</span>
+          <span class="metric-value good">≈ 6,8x</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">PER 2025e (forward)</span>
+          <span class="metric-value bad">N/A (résultat ~0)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Price / Book</span>
+          <span class="metric-value good">0,85x</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Price / Sales</span>
+          <span class="metric-value good">0,72x</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">EV / EBITDA</span>
+          <span class="metric-value warning">≈ 9,0x</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">ROE 2024</span>
+          <span class="metric-value warning">≈ 10,5%</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">ROE 2023 (pic)</span>
+          <span class="metric-value good">≈ 18,6%</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">ROIC 2024</span>
+          <span class="metric-value bad">3,4%</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Trésorerie nette</span>
+          <span class="metric-value good">+357 M€</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Fonds propres</span>
+          <span class="metric-value good">886 M€</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">FCF 2024</span>
+          <span class="metric-value good">+103 M€</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Marge nette 2024</span>
+          <span class="metric-value warning">9,0%</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Beta</span>
+          <span class="metric-value neutral">0,73</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Dividende TTM</span>
+          <span class="metric-value good">1,43€ (18%*)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Higgons Score -->
+    <div class="panel">
+      <div class="panel-title">◆ Score Méthode Higgons</div>
+      <div class="panel-body">
+        <div class="higgons-grid">
+
+          <div class="higgons-criteria pass">
+            <div class="criteria-icon pass">✓</div>
+            <div class="criteria-name">PER très faible</div>
+            <div class="criteria-target">Cible: &lt;12 (idéal &lt;10)</div>
+            <div class="criteria-actual" style="color: var(--green);">~6,8x ✓</div>
+          </div>
+
+          <div class="higgons-criteria pass">
+            <div class="criteria-icon pass">✓</div>
+            <div class="criteria-name">Petite capitalisation</div>
+            <div class="criteria-target">Cible: Small/Mid cap</div>
+            <div class="criteria-actual" style="color: var(--green);">632 M€ ✓</div>
+          </div>
+
+          <div class="higgons-criteria partial">
+            <div class="criteria-icon partial">~</div>
+            <div class="criteria-name">ROE élevé</div>
+            <div class="criteria-target">Cible: &gt;15%</div>
+            <div class="criteria-actual" style="color: var(--orange);">10,5% (2024) ⚠</div>
+          </div>
+
+          <div class="higgons-criteria pass">
+            <div class="criteria-icon pass">✓</div>
+            <div class="criteria-name">Dette faible</div>
+            <div class="criteria-target">Cible: Dette/Equity &lt;50%</div>
+            <div class="criteria-actual" style="color: var(--green);">Cash net +357M€ ✓</div>
+          </div>
+
+          <div class="higgons-criteria fail">
+            <div class="criteria-icon fail">✗</div>
+            <div class="criteria-name">Momentum haussier</div>
+            <div class="criteria-target">Cible: Tendance haussière</div>
+            <div class="criteria-actual" style="color: var(--red);">Baissier -27% 52s ✗</div>
+          </div>
+
+        </div>
+
+        <div class="score-badge">
+          <div class="score-num" style="color: var(--orange);">3/5</div>
+          <div class="score-label">Score Higgons — Watchlist</div>
+        </div>
+
+        <div style="margin-top: 12px; padding: 10px; background: var(--bg-primary); border-radius: 3px; border-left: 3px solid var(--orange);">
+          <div style="font-size: 10px; color: var(--orange); font-weight: 600; margin-bottom: 4px;">⚠ NOTE IMPORTANTE</div>
+          <div style="font-size: 10px; color: var(--text-secondary); line-height: 1.6;">
+            Le PER historique 2024 est très attractif (~6,8x), mais le forward PER 2025 est N/A car le résultat opérationnel est attendu proche de zéro. Le "vrai" PER normalisé mid-cycle se situe probablement autour de 8-10x, ce qui reste dans la zone Higgons. Le ROE de 18,6% en 2023 valide le critère, mais la dégradation 2024-2025 le fait temporairement sortir du filtre.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: P&L Evolution + Consensus -->
+  <div class="grid-2">
+    <!-- Financial Evolution -->
+    <div class="panel">
+      <div class="panel-title">◆ Évolution Financière (M€)</div>
+      <div class="panel-body">
+        <table class="fin-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>2022</th>
+              <th>2023</th>
+              <th>2024</th>
+              <th>S1 2025</th>
+              <th>2025e</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Chiffre d'affaires</td>
+              <td>1 508</td>
+              <td>1 465</td>
+              <td style="color: var(--red);">1 034</td>
+              <td style="color: var(--red);">404</td>
+              <td style="color: var(--orange);">~900</td>
+            </tr>
+            <tr>
+              <td>Δ CA YoY</td>
+              <td style="color: var(--green);">+22,9%</td>
+              <td style="color: var(--red);">-2,9%</td>
+              <td style="color: var(--red);">-29,4%</td>
+              <td style="color: var(--red);">-27%</td>
+              <td style="color: var(--red);">~-13%</td>
+            </tr>
+            <tr>
+              <td>EBITDA</td>
+              <td>209</td>
+              <td>260</td>
+              <td style="color: var(--red);">121</td>
+              <td style="color: var(--red);">n/d</td>
+              <td style="color: var(--red);">~50</td>
+            </tr>
+            <tr>
+              <td>Résultat Op. Courant</td>
+              <td>154</td>
+              <td>207</td>
+              <td style="color: var(--orange);">76</td>
+              <td style="color: var(--red);">négatif</td>
+              <td style="color: var(--red);">~0</td>
+            </tr>
+            <tr>
+              <td>Marge ROC %</td>
+              <td>10,2%</td>
+              <td style="color: var(--green);">14,1%</td>
+              <td style="color: var(--orange);">7,3%</td>
+              <td>—</td>
+              <td style="color: var(--red);">~0%</td>
+            </tr>
+            <tr>
+              <td>Résultat net</td>
+              <td>103</td>
+              <td style="color: var(--green);">159</td>
+              <td>93</td>
+              <td style="color: var(--red);">négatif</td>
+              <td style="color: var(--red);">~0</td>
+            </tr>
+            <tr>
+              <td>FCF</td>
+              <td>-29</td>
+              <td>111</td>
+              <td style="color: var(--green);">103</td>
+              <td>n/d</td>
+              <td>n/d</td>
+            </tr>
+            <tr>
+              <td>Trésorerie nette</td>
+              <td>52</td>
+              <td>127</td>
+              <td style="color: var(--green);">357</td>
+              <td>n/d</td>
+              <td>~250*</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px; font-size: 9px; color: var(--text-muted);">
+          * Après versement du dividende exceptionnel de 100M€ + dividende courant 18M€. Sources: Rapports annuels Bénéteau, estimations S1 2025.
+        </div>
+      </div>
+    </div>
+
+    <!-- Consensus & Target -->
+    <div class="panel">
+      <div class="panel-title">◆ Consensus Analystes & Objectif de Cours</div>
+      <div class="panel-body">
+        <div style="text-align: center; margin-bottom: 16px;">
+          <div style="font-size: 10px; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px;">Recommandation Consensus (7 analystes)</div>
+          <span class="tag buy" style="font-size: 12px; padding: 4px 16px;">ACHAT</span>
+        </div>
+
+        <div class="metric-row">
+          <span class="metric-label">Objectif moyen</span>
+          <span class="metric-value good">9,19 € (+17,4%)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Objectif haut</span>
+          <span class="metric-value good">10,50 € (+34,1%)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Objectif bas</span>
+          <span class="metric-value warning">8,50 € (+8,6%)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Cours actuel</span>
+          <span class="metric-value bad">7,83 €</span>
+        </div>
+
+        <div class="sep"></div>
+
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 1px; text-transform: uppercase;">Répartition</div>
+        <div class="progress-container">
+          <span class="progress-label" style="color: var(--green);">Achat</span>
+          <div class="progress-bar"><div class="progress-fill" style="width: 57%; background: var(--green);"></div></div>
+          <span class="progress-label">4</span>
+        </div>
+        <div class="progress-container">
+          <span class="progress-label" style="color: var(--orange);">Neutre</span>
+          <div class="progress-bar"><div class="progress-fill" style="width: 43%; background: var(--orange);"></div></div>
+          <span class="progress-label">3</span>
+        </div>
+        <div class="progress-container">
+          <span class="progress-label" style="color: var(--red);">Vente</span>
+          <div class="progress-bar"><div class="progress-fill" style="width: 0%; background: var(--red);"></div></div>
+          <span class="progress-label">0</span>
+        </div>
+
+        <div class="sep"></div>
+
+        <div style="font-size: 10px; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 1px; text-transform: uppercase;">Valorisation par les Actifs (Approche Value)</div>
+        <div class="metric-row">
+          <span class="metric-label">Actif net / action</span>
+          <span class="metric-value good">≈ 10,80 € (fonds propres 886M / ~82M actions)</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Décote sur actif net</span>
+          <span class="metric-value good">-27,5%</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Tréso nette / action</span>
+          <span class="metric-value good">≈ 4,35 € (56% du cours !)</span>
+        </div>
+
+        <div style="margin-top: 10px; padding: 8px; background: var(--bg-primary); border-radius: 3px;">
+          <div style="font-size: 10px; color: var(--cyan); line-height: 1.6;">
+            💡 Le cours actuel ne valorise que <strong>~275M€</strong> l'activité bateau hors trésorerie (632M cap - 357M cash). Pour un groupe faisant 1Md€ de CA, c'est une valorisation de 0,27x les ventes, extrêmement basse.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SWOT -->
+  <div class="panel full-width">
+    <div class="panel-title">◆ Analyse SWOT — Bénéteau</div>
+    <div class="panel-body">
+      <div class="swot-grid">
+        <div class="swot-box strength">
+          <h4>Forces</h4>
+          <ul>
+            <li>N°1 mondial de la voile, portefeuille multi-marques (Lagoon, Jeanneau, Prestige, Bénéteau)</li>
+            <li>Trésorerie nette massive de 357M€ — aucun risque de solvabilité</li>
+            <li>Fonds propres en hausse à 886M€ malgré la crise</li>
+            <li>Réseau mondial de concessionnaires (barrière à l'entrée colossale)</li>
+            <li>FCF positif de 103M€ même dans un exercice de purge</li>
+            <li>140 ans d'histoire, expertise industrielle unique</li>
+            <li>Diversification voile / moteur / catamarans / services</li>
+          </ul>
+        </div>
+        <div class="swot-box weakness">
+          <h4>Faiblesses</h4>
+          <ul>
+            <li>Cyclicité extrême — consommation discrétionnaire pure</li>
+            <li>CA en chute de 29,4% en 2024, S1 2025 encore -27%</li>
+            <li>ROIC effondré à 3,4% — outil industriel sous-utilisé</li>
+            <li>Coûts fixes rigides vs. demande volatile</li>
+            <li>Payout ratio de 197% insoutenable à terme</li>
+            <li>Momentum boursier fortement négatif (-47% sur 8 ans)</li>
+            <li>Sensibilité aux taux d'intérêt (financement bateaux)</li>
+          </ul>
+        </div>
+        <div class="swot-box opportunity">
+          <h4>Opportunités</h4>
+          <ul>
+            <li>66 nouveaux modèles prévus 2025-2027 (cycle produit majeur)</li>
+            <li>Target ambitieux: 1,5Md€ CA en 2028 et marge ROC 10%</li>
+            <li>Déstockage réseau finalisé → normalisation des ventes S2 2025</li>
+            <li>Cession Habitat → recentrage pur nautisme + cash</li>
+            <li>Montée en gamme + innovation (foils, hybride, matériaux recyclables)</li>
+            <li>Décote massive sur actif net (-27,5%) = marge de sécurité value</li>
+            <li>Retour des taux bas potentiel = relance du marché nautique</li>
+          </ul>
+        </div>
+        <div class="swot-box threat">
+          <h4>Menaces</h4>
+          <ul>
+            <li>Environnement macro incertain (droits de douane US: 5-10M€ impact S2 2025)</li>
+            <li>Concurrence croissante: Catana (catamarans), Brunswick (puissance US)</li>
+            <li>Taux d'intérêt élevés pénalisant les achats discrétionnaires</li>
+            <li>Risque de récession prolongée dans le nautisme</li>
+            <li>Volatilité des devises (26% du CA en Amérique du Nord)</li>
+            <li>Coûts matières premières (fibre de verre, résines)</li>
+            <li>Concentration du risque sur le marché européen (62% du CA)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analyse Narrative -->
+  <div class="panel full-width">
+    <div class="panel-title">◆ Analyse Détaillée — Perspective Value Investing</div>
+    <div class="narrative">
+      <p>
+        <strong>Bénéteau traverse actuellement la pire phase de son cycle.</strong> Après une année 2023 record (CA 1,465Md€, ROC 14,1%), le groupe subit un retournement brutal du marché nautique, amplifié par un déstockage massif des concessionnaires. Le CA 2024 a chuté de 29,4% et le S1 2025 confirme la tendance avec -27%. Le résultat opérationnel 2025 est attendu <span class="highlight-orange">proche de l'équilibre</span>, un creux historique.
+      </p>
+      <p>
+        <strong>Du point de vue strict de la méthode Higgons, le dossier est un cas d'école "presque value".</strong> Le PER historique 2024 (~6,8x) est <span class="highlight-green">excellent</span> et bien en dessous du seuil des 10x. La capitalisation de 632M€ le classe comme small cap. La dette est non seulement faible — elle est inexistante : le groupe dispose de <span class="highlight-green">357M€ de trésorerie nette</span>, soit plus de 56% de sa capitalisation boursière en cash. Le Price/Book à 0,85x signifie que le marché valorise Bénéteau en dessous de ses fonds propres comptables.
+      </p>
+      <p>
+        <strong>Les deux critères manquants sont problématiques :</strong> le <span class="highlight-red">momentum est clairement baissier</span> (le titre évolue 27% sous son plus haut 52 semaines et a perdu 47% en 8 ans), et le <span class="highlight-orange">ROE se dégrade</span> de 18,6% en 2023 à 10,5% en 2024, avec une trajectoire vers ~0% en 2025. Or la méthode Higgons exige un ROE élevé ET un momentum positif pour valider un achat.
+      </p>
+      <p>
+        <strong>La question centrale pour un investisseur value est : "achète-t-on le creux du cycle ou attrape-t-on un couteau qui tombe ?"</strong> Plusieurs signaux plaident pour un plancher proche : le déstockage réseau est <span class="highlight-green">finalisé</span>, les prises de commandes sont en croissance significative depuis le salon de Cannes 2025, et le management table sur un retour à la croissance dès le S2 2025 avec ~500M€ de ventes (vs. 480M€ au S2 2024). Le plan produit de 66 nouveaux modèles sur 3 ans est le plus ambitieux de l'histoire du groupe.
+      </p>
+      <p>
+        <strong>Target de prix :</strong> L'approche par les actifs donne un plancher autour de <span class="highlight-green">10,80€/action</span> (actif net pur). Le consensus analystes vise 9,19€ en moyenne (+17%). En normalisant les bénéfices mid-cycle (résultat net ~120-150M€), un PER de 8-10x donnerait un cours cible de <span class="highlight-green">11,70€ à 18,30€</span>. Le principal risque est que le "mid-cycle" ne revienne pas aussi vite que prévu.
+      </p>
+      <p>
+        <strong>Recommandation Olyos Capital :</strong> <span class="highlight-orange">Watchlist active.</span> Le dossier Bénéteau réunit les ingrédients d'un excellent investissement value contrariant (décote massive, bilan forteresse, leadership mondial), mais <span class="highlight-red">il ne valide pas la méthode Higgons complète</span> tant que le momentum n'a pas tourné et que le ROE ne s'est pas normalisé. Le point d'entrée optimal serait un retournement confirmé des ventes (résultats S2 2025 ou Q1 2026) avec un cours qui casse sa MMA200 à la hausse. En dessous de 7€, la marge de sécurité purement par les actifs devient exceptionnelle.
+      </p>
+    </div>
+  </div>
+
+  <!-- Catalyseurs -->
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-title" style="color: var(--green);">◆ Catalyseurs Haussiers</div>
+      <div class="panel-body">
+        <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.8;">
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--green);">1.</strong> Retour à la croissance S2 2025 (~500M€ CA attendu)
+          </div>
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--green);">2.</strong> 23 nouveaux modèles lancés au salon de Cannes 2025
+          </div>
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--green);">3.</strong> Fin du déstockage réseau → normalisation des flux
+          </div>
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--green);">4.</strong> Baisse potentielle des taux BCE = relance crédit nautique
+          </div>
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--green);">5.</strong> Plan 2028 : objectif 1,5Md€ CA et 10% marge ROC
+          </div>
+          <div style="padding: 6px 0;">
+            <strong style="color: var(--green);">6.</strong> Rachat d'actions possible avec le cash disponible
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title" style="color: var(--red);">◆ Risques Baissiers</div>
+      <div class="panel-body">
+        <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.8;">
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--red);">1.</strong> Récession prolongée du marché nautique mondial
+          </div>
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--red);">2.</strong> Droits de douane US : impact estimé 5-10M€ au S2 2025
+          </div>
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--red);">3.</strong> Destruction de valeur si résultat net négatif en 2025
+          </div>
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--red);">4.</strong> Intensité promotionnelle pesant sur les marges
+          </div>
+          <div style="padding: 6px 0; border-bottom: 1px solid rgba(30,45,61,0.5);">
+            <strong style="color: var(--red);">5.</strong> Ralentissement marché multicoques (segment clé Lagoon)
+          </div>
+          <div style="padding: 6px 0;">
+            <strong style="color: var(--red);">6.</strong> Perte de parts de marché face à Catana / Brunswick
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Calendrier -->
+  <div class="panel full-width">
+    <div class="panel-title">◆ Événements Clés à Surveiller</div>
+    <div class="panel-body">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+        <div style="padding: 10px; background: var(--bg-primary); border-radius: 3px; border-left: 3px solid var(--cyan);">
+          <div style="font-size: 9px; color: var(--cyan); letter-spacing: 1px;">NOV 2025</div>
+          <div style="font-size: 10px; color: var(--text-primary); margin-top: 4px;">CA Q3 2025</div>
+          <div style="font-size: 9px; color: var(--text-muted);">Confirmation reprise S2</div>
+        </div>
+        <div style="padding: 10px; background: var(--bg-primary); border-radius: 3px; border-left: 3px solid var(--cyan);">
+          <div style="font-size: 9px; color: var(--cyan); letter-spacing: 1px;">FÉV 2026</div>
+          <div style="font-size: 10px; color: var(--text-primary); margin-top: 4px;">CA annuel 2025</div>
+          <div style="font-size: 9px; color: var(--text-muted);">Vérif. guidance 900M-1Md€</div>
+        </div>
+        <div style="padding: 10px; background: var(--bg-primary); border-radius: 3px; border-left: 3px solid var(--orange);">
+          <div style="font-size: 9px; color: var(--orange); letter-spacing: 1px;">MARS 2026</div>
+          <div style="font-size: 10px; color: var(--text-primary); margin-top: 4px;">Résultats annuels 2025</div>
+          <div style="font-size: 9px; color: var(--text-muted);">ROC ~0 attendu — clé!</div>
+        </div>
+        <div style="padding: 10px; background: var(--bg-primary); border-radius: 3px; border-left: 3px solid var(--green);">
+          <div style="font-size: 9px; color: var(--green); letter-spacing: 1px;">SEPT 2026</div>
+          <div style="font-size: 10px; color: var(--text-primary); margin-top: 4px;">Salon de Cannes 2026</div>
+          <div style="font-size: 9px; color: var(--text-muted);">Nouveautés & prises commandes</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div class="disclaimer">
+      OLYOS CAPITAL — Equity Research Report │ BEN.PA — Bénéteau S.A. │ Généré le 07/02/2026<br>
+      Ce document est fourni à titre informatif uniquement et ne constitue pas un conseil en investissement. 
+      Les performances passées ne préjugent pas des performances futures. Toute décision d'investissement doit être prise après consultation d'un conseiller financier qualifié.
+      Sources: Rapports annuels Bénéteau 2024, Résultats S1 2025, Investing.com, Yahoo Finance, Zonebourse, RendementBourse.
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -14,6 +14,9 @@ svglib>=1.5.0
 # AI analysis (Claude API)
 anthropic>=0.39.0
 
+# News feed (RSS parsing)
+feedparser>=6.0.0
+
 # Optional: Progress bars for CLI
 tqdm>=4.64.0
 
