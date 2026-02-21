@@ -1,0 +1,190 @@
+{
+  "generated_at": "2026-02-20T14:01:42.778320",
+  "portfolio": {
+    "portfolio": [
+      {
+        "ticker": "GUI",
+        "name": "Guillemot",
+        "isin": null,
+        "category": "value",
+        "shares": 10.0,
+        "avg_price": 10.0,
+        "current_price": 11.0,
+        "sector": "Tech",
+        "country": "FR",
+        "notes": null,
+        "weight_initial": 0.5
+      },
+      {
+        "ticker": "SMCP",
+        "name": "SMCP",
+        "isin": null,
+        "category": "cyclique",
+        "shares": 20.0,
+        "avg_price": 5.0,
+        "current_price": 4.8,
+        "sector": "Consumer",
+        "country": "FR",
+        "notes": null,
+        "weight_initial": 0.5
+      }
+    ],
+    "cash": 1000.0,
+    "currency": "EUR",
+    "warnings": []
+  },
+  "prices": {
+    "GUI": {
+      "price": 11.0,
+      "avg_volume_30d": null,
+      "52w_high": null,
+      "52w_low": null,
+      "pe": null,
+      "market_cap": null,
+      "dividend_yield": null,
+      "yahoo_symbol": null,
+      "error": "Price fetch disabled"
+    },
+    "SMCP": {
+      "price": 4.8,
+      "avg_volume_30d": null,
+      "52w_high": null,
+      "52w_low": null,
+      "pe": null,
+      "market_cap": null,
+      "dividend_yield": null,
+      "yahoo_symbol": null,
+      "error": "Price fetch disabled"
+    }
+  },
+  "metrics": {
+    "currency": "EUR",
+    "cash": 1000.0,
+    "total_invested": 200.0,
+    "total_current_value": 206.0,
+    "total_value_with_cash": 1206.0,
+    "total_pnl_eur": 6.0,
+    "total_pnl_pct": 0.03,
+    "positions": [
+      {
+        "ticker": "GUI",
+        "name": "Guillemot",
+        "category": "value",
+        "sector": "Tech",
+        "country": "FR",
+        "shares": 10.0,
+        "avg_price": 10.0,
+        "current_price": 11.0,
+        "cost_basis": 100.0,
+        "current_value": 110.0,
+        "pnl_eur": 10.0,
+        "pnl_pct": 0.1,
+        "weight_pct": 0.5339805825242718,
+        "vs_52w_high": null,
+        "vs_52w_low": null
+      },
+      {
+        "ticker": "SMCP",
+        "name": "SMCP",
+        "category": "cyclique",
+        "sector": "Consumer",
+        "country": "FR",
+        "shares": 20.0,
+        "avg_price": 5.0,
+        "current_price": 4.8,
+        "cost_basis": 100.0,
+        "current_value": 96.0,
+        "pnl_eur": -4.0,
+        "pnl_pct": -0.04,
+        "weight_pct": 0.46601941747572817,
+        "vs_52w_high": null,
+        "vs_52w_low": null
+      }
+    ]
+  },
+  "concentration": {
+    "max_single_position": 0.5339805825242718,
+    "top3_concentration": 1.0,
+    "sector_breakdown": {
+      "Tech": 0.5339805825242718,
+      "Consumer": 0.46601941747572817
+    },
+    "country_breakdown": {
+      "FR": 1.0
+    },
+    "alerts": [
+      "Position unique > 20% du portefeuille",
+      "Top 3 positions > 50% - concentration elevee",
+      "Secteur Tech represente 53% du portefeuille",
+      "Secteur Consumer represente 47% du portefeuille"
+    ]
+  },
+  "category_balance": {
+    "categories": {
+      "value": {
+        "weight": 0.5339805825242718,
+        "avg_pnl": 0.1,
+        "positions": [
+          {
+            "ticker": "GUI",
+            "name": "Guillemot",
+            "category": "value",
+            "sector": "Tech",
+            "country": "FR",
+            "shares": 10.0,
+            "avg_price": 10.0,
+            "current_price": 11.0,
+            "cost_basis": 100.0,
+            "current_value": 110.0,
+            "pnl_eur": 10.0,
+            "pnl_pct": 0.1,
+            "weight_pct": 0.5339805825242718,
+            "vs_52w_high": null,
+            "vs_52w_low": null
+          }
+        ]
+      },
+      "croissance": {
+        "weight": 0.0,
+        "avg_pnl": 0.0,
+        "positions": []
+      },
+      "cyclique": {
+        "weight": 0.46601941747572817,
+        "avg_pnl": -0.04,
+        "positions": [
+          {
+            "ticker": "SMCP",
+            "name": "SMCP",
+            "category": "cyclique",
+            "sector": "Consumer",
+            "country": "FR",
+            "shares": 20.0,
+            "avg_price": 5.0,
+            "current_price": 4.8,
+            "cost_basis": 100.0,
+            "current_value": 96.0,
+            "pnl_eur": -4.0,
+            "pnl_pct": -0.04,
+            "weight_pct": 0.46601941747572817,
+            "vs_52w_high": null,
+            "vs_52w_low": null
+          }
+        ]
+      },
+      "mixte": {
+        "weight": 0.0,
+        "avg_pnl": 0.0,
+        "positions": []
+      }
+    },
+    "alerts": []
+  },
+  "macro_context": "Contexte macro indisponible (erreur web search).",
+  "rebalancing_ideas": [
+    "Alleger GUI (53.4% du portefeuille) pour reduire le risque idiosyncratique.",
+    "Reduire progressivement le poids cumule des 3 plus grosses positions sous 50%.",
+    "Limiter l'exposition au secteur Tech (53.4%) via allegements selectifs.",
+    "Deployer une partie du cash sur 1-2 dossiers en zone de rechargement pour diluer la concentration."
+  ]
+}

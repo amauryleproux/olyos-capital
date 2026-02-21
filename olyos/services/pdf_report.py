@@ -9,6 +9,8 @@ Pages:
 3. Allocations & Methodology - Sector/Geographic charts, Top/Bottom performers
 """
 
+from __future__ import annotations
+
 import io
 import os
 import json
