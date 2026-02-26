@@ -38,6 +38,12 @@ from olyos.services.rebalancing import RebalancingService, RebalanceConfig, crea
 from olyos.services.ai_analysis import run_analysis as run_ai_analysis
 from olyos.services.news import get_news, get_cached_digest, generate_daily_digest
 from olyos.services.publications import get_publications, generate_publications_summary
+from olyos.services.higgons_agent_service import (
+    analyze_ticker as higgons_analyze_ticker,
+    analyze_with_pdf as higgons_analyze_with_pdf,
+    scan_portfolio as higgons_scan_portfolio,
+    load_scores_history as higgons_load_history,
+)
 try:
     from olyos.olyos_portfolio_advisor import run_analysis as run_portfolio_advisor_analysis
     PORTFOLIO_ADVISOR_OK = True
@@ -8029,6 +8035,7 @@ def gen_html(df: Any, screener: List[Dict[str, Any]], watchlist: List[str], upda
 
 <button class="fkey" onclick="location.href='/news'" style="background:linear-gradient(135deg,#1a1a2e,#0d1a2e);border-color:#00bfff;color:#00bfff;">F11 NEWS</button>
 <button class="fkey" id="fkey-advisor" onclick="location.href='/advisor'" style="background:linear-gradient(135deg,#0f2533,#143042);border-color:#22d3ee;color:#22d3ee;" {'disabled' if not PORTFOLIO_ADVISOR_OK else ''}>F11 ADVISOR</button>
+<button class="fkey" onclick="location.href='/agent'" style="background:linear-gradient(135deg,#1a1a10,#2e2a0d);border-color:#f0c040;color:#f0c040;">F12 AGENT</button>
 
 </div>
 
@@ -15460,7 +15467,8 @@ class Handler(SimpleHTTPRequestHandler):
 
         content_length = int(self.headers['Content-Length'])
 
-        post_data = self.rfile.read(content_length).decode('utf-8')
+        post_data_raw = self.rfile.read(content_length)
+        post_data = post_data_raw.decode('utf-8', errors='replace')
 
         
 
@@ -16027,11 +16035,136 @@ class Handler(SimpleHTTPRequestHandler):
 
         
 
+        # ═══ HIGGONS AGENT — Analyze single ticker ═══
+        if q.get('action') == ['agent_analyze']:
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            ticker = q.get('ticker', [''])[0]
+            if not ticker:
+                try:
+                    body = json.loads(post_data) if post_data else {}
+                    ticker = body.get('ticker', '')
+                except Exception:
+                    pass
+
+            if not ticker:
+                response = json.dumps({'error': 'Ticker manquant'})
+            else:
+                try:
+                    result = higgons_analyze_ticker(
+                        ticker=ticker.upper(),
+                        eod_api_key=EOD_API_KEY if EOD_OK else None,
+                        anthropic_api_key=ANTHROPIC_API_KEY if ANTHROPIC_OK else None,
+                    )
+                    response = json.dumps(result, ensure_ascii=False, default=str)
+                except Exception as e:
+                    log.error(f"Higgons agent error for {ticker}: {e}", exc_info=True)
+                    response = json.dumps({'error': str(e)})
+
+            self.wfile.write(response.encode('utf-8'))
+            return
+
+        # ═══ HIGGONS AGENT — Upload PDF ═══
+        if q.get('action') == ['agent_upload_pdf']:
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            if not ANTHROPIC_OK:
+                response = json.dumps({'error': 'API Anthropic non configurée. Définir ANTHROPIC_API_KEY.'})
+            else:
+                try:
+                    # Parse multipart form data
+                    content_type = self.headers.get('Content-Type', '')
+                    pdf_bytes = None
+                    ticker = ''
+
+                    if 'multipart/form-data' in content_type:
+                        import cgi
+                        import io
+                        environ = {
+                            'REQUEST_METHOD': 'POST',
+                            'CONTENT_TYPE': content_type,
+                            'CONTENT_LENGTH': self.headers.get('Content-Length', '0'),
+                        }
+                        form = cgi.FieldStorage(
+                            fp=io.BytesIO(post_data_raw),
+                            environ=environ,
+                            keep_blank_values=True,
+                        )
+                        if 'pdf' in form:
+                            pdf_bytes = form['pdf'].file.read()
+                        if 'ticker' in form:
+                            ticker = form['ticker'].value
+                    else:
+                        response = json.dumps({'error': 'Content-Type doit être multipart/form-data'})
+                        self.wfile.write(response.encode('utf-8'))
+                        return
+
+                    if not pdf_bytes:
+                        response = json.dumps({'error': 'Fichier PDF manquant'})
+                    elif not ticker:
+                        response = json.dumps({'error': 'Ticker manquant'})
+                    else:
+                        result = higgons_analyze_with_pdf(
+                            pdf_bytes=pdf_bytes,
+                            ticker=ticker.upper(),
+                            anthropic_api_key=ANTHROPIC_API_KEY,
+                            eod_api_key=EOD_API_KEY if EOD_OK else None,
+                        )
+                        response = json.dumps(result, ensure_ascii=False, default=str)
+                except Exception as e:
+                    log.error(f"Higgons PDF upload error: {e}", exc_info=True)
+                    response = json.dumps({'error': str(e)})
+
+            self.wfile.write(response.encode('utf-8'))
+            return
+
+        # ═══ HIGGONS AGENT — Scan portfolio ═══
+        if q.get('action') == ['agent_scan']:
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            try:
+                df, err = load_portfolio()
+                if err or df is None:
+                    raise Exception(err or "Could not load portfolio")
+
+                # Build ticker list from portfolio (resolve_yahoo_ticker handles suffix)
+                tickers = []
+                for _, row in df.iterrows():
+                    ticker = str(row.get('ticker', '') or '').strip().upper()
+                    if not ticker:
+                        continue
+                    tickers.append({
+                        'yahoo': ticker,
+                        'name': str(row.get('name', '') or '').strip() or ticker,
+                    })
+
+                if not tickers:
+                    raise Exception("Aucune position trouvée dans le portefeuille")
+
+                results = higgons_scan_portfolio(
+                    tickers=tickers,
+                    eod_api_key=EOD_API_KEY if EOD_OK else None,
+                    anthropic_api_key=ANTHROPIC_API_KEY if ANTHROPIC_OK else None,
+                )
+                response = json.dumps({'results': results}, ensure_ascii=False, default=str)
+            except Exception as e:
+                log.error(f"Higgons scan error: {e}", exc_info=True)
+                response = json.dumps({'error': str(e)})
+
+            self.wfile.write(response.encode('utf-8'))
+            return
+
         self.send_response(400)
 
         self.end_headers()
 
-    
+
 
     def do_GET(self):
 
@@ -17697,6 +17830,36 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         
+
+        # ═══ SERVE HIGGONS AGENT PAGE ═══
+
+        if p.path in ('/agent', '/agent/'):
+            agent_html = os.path.join(os.path.dirname(__file__), 'templates', 'agent.html')
+            if os.path.exists(agent_html):
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html; charset=utf-8')
+                self.send_header('Cache-Control', 'no-cache')
+                self.end_headers()
+                with open(agent_html, 'r', encoding='utf-8') as f:
+                    self.wfile.write(f.read().encode())
+                return
+
+        # ═══ HIGGONS AGENT — GET history ═══
+
+        if q.get('action') == ['agent_history']:
+            try:
+                history = higgons_load_history()
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'history': history}, ensure_ascii=False, default=str).encode('utf-8'))
+            except Exception as e:
+                log.error(f"Higgons history error: {e}")
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'history': {}, 'error': str(e)}).encode('utf-8'))
+            return
 
         # ═══ SERVE NEWS PAGE ═══
 

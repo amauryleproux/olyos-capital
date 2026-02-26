@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Olyos Capital — Higgons Agent</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2308081a'/><line x1='9' y1='8' x2='16' y2='16' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><line x1='16' y1='16' x2='25' y2='12' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><line x1='16' y1='16' x2='11' y2='25' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><circle cx='9' cy='8' r='3' fill='%23c9a84c' opacity='.8'/><circle cx='16' cy='16' r='4' fill='%23c9a84c'/><circle cx='25' cy='12' r='2.5' fill='%23c9a84c' opacity='.7'/><circle cx='11' cy='25' r='2' fill='%23c9a84c' opacity='.45'/></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-0:#04040a;--bg-1:#08080e;--bg-2:#0a0a12;--bg-3:#0d0d14;--bg-4:#111118;
+  --border:#1a1a2e;--border-2:#2a2a3e;
+  --amber:#ff9500;--amber-dim:#cc7700;--green:#00ff88;--green-dim:#00cc66;
+  --red:#ff3b30;--blue:#00bfff;--yellow:#ffcc00;--orange:#ff6644;--gold:#f0c040;
+  --text:#ccc;--text-dim:#888;--text-dark:#555;--text-ghost:#333;
+}
+body{font-family:'JetBrains Mono',Consolas,'Courier New',monospace;background:var(--bg-0);color:var(--text);font-size:12px;min-height:100vh;display:flex;flex-direction:column}
+
+/* ═══ HEADER ═══ */
+.hdr{background:linear-gradient(180deg,var(--bg-4) 0%,var(--bg-3) 100%);padding:6px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--gold)}
+.hdr-logo{display:flex;align-items:center;gap:10px}
+.hdr-logo svg{width:20px;height:20px}
+.hdr-logo h1{font-size:14px;font-weight:700;color:var(--gold);letter-spacing:3px}
+.hdr-logo .ver{color:var(--text-ghost);font-size:10px;letter-spacing:1px}
+.hdr-mid{color:var(--text-dark);font-size:10px;letter-spacing:1px}
+.hdr-right{display:flex;align-items:center;gap:14px}
+.hdr-time{color:var(--green);font-size:11px;font-weight:600}
+.hdr-back{background:var(--bg-4);border:1px solid var(--border-2);color:var(--text-dim);padding:4px 14px;font-family:inherit;font-size:10px;cursor:pointer;letter-spacing:1px;text-decoration:none;text-transform:uppercase}
+.hdr-back:hover{background:var(--amber);color:#000;border-color:var(--amber)}
+.hdr-nav{display:flex;gap:4px}
+.hdr-nav a{background:var(--bg-4);border:1px solid var(--border);color:var(--text-dark);padding:4px 10px;font-family:inherit;font-size:9px;cursor:pointer;letter-spacing:0.5px;text-decoration:none}
+.hdr-nav a:hover{color:var(--amber);border-color:var(--amber)}
+.hdr-nav a.active{color:var(--gold);border-color:var(--gold)}
+
+/* ═══ MAIN LAYOUT ═══ */
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:340px;min-width:340px;background:var(--bg-2);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column}
+.content{flex:1;overflow-y:auto;padding:16px}
+
+/* ═══ SIDEBAR SECTIONS ═══ */
+.sidebar-section{padding:14px;border-bottom:1px solid var(--border)}
+.sidebar-title{color:var(--gold);font-size:9px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+
+/* Input */
+.input-group{display:flex;gap:4px;margin-bottom:8px}
+.input-group input{flex:1;background:var(--bg-4);border:1px solid var(--border-2);color:var(--text);padding:7px 10px;font-family:inherit;font-size:11px;outline:none}
+.input-group input:focus{border-color:var(--gold)}
+.input-group input::placeholder{color:var(--text-ghost)}
+.btn{background:var(--bg-4);border:1px solid var(--border-2);color:var(--text-dim);padding:7px 14px;font-family:inherit;font-size:10px;cursor:pointer;letter-spacing:0.5px;text-transform:uppercase;transition:all 0.15s}
+.btn:hover{color:var(--gold);border-color:var(--gold)}
+.btn.primary{background:rgba(240,192,64,0.1);color:var(--gold);border-color:rgba(240,192,64,0.4)}
+.btn.primary:hover{background:var(--gold);color:#000}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+
+/* PDF Upload */
+.upload-zone{border:1px dashed var(--border-2);padding:16px;text-align:center;border-radius:3px;cursor:pointer;transition:all 0.15s;margin-bottom:8px}
+.upload-zone:hover{border-color:var(--gold);background:rgba(240,192,64,0.03)}
+.upload-zone.dragover{border-color:var(--gold);background:rgba(240,192,64,0.08)}
+.upload-zone .icon{font-size:20px;margin-bottom:4px}
+.upload-zone .label{color:var(--text-dark);font-size:10px}
+.upload-zone .filename{color:var(--gold);font-size:10px;margin-top:4px}
+#pdf-file{display:none}
+
+/* ═══ RESULTS ═══ */
+.result-card{background:var(--bg-2);border:1px solid var(--border);border-radius:3px;padding:14px;margin-bottom:10px}
+.result-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.result-ticker{font-size:14px;font-weight:700;color:var(--gold)}
+.result-name{color:var(--text-dim);font-size:10px;margin-left:8px}
+.result-grade{font-size:18px;font-weight:700;padding:4px 10px;border-radius:3px;min-width:36px;text-align:center}
+.grade-A{background:rgba(0,255,136,0.15);color:var(--green);border:1px solid rgba(0,255,136,0.3)}
+.grade-B{background:rgba(0,191,255,0.15);color:var(--blue);border:1px solid rgba(0,191,255,0.3)}
+.grade-C{background:rgba(255,204,0,0.15);color:var(--yellow);border:1px solid rgba(255,204,0,0.3)}
+.grade-D{background:rgba(255,149,0,0.15);color:var(--orange);border:1px solid rgba(255,149,0,0.3)}
+.grade-E{background:rgba(255,59,48,0.15);color:var(--red);border:1px solid rgba(255,59,48,0.3)}
+
+/* Score bars */
+.score-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.score-label{width:80px;color:var(--text-dim);font-size:10px;text-transform:uppercase;letter-spacing:0.5px}
+.score-bar-bg{flex:1;height:6px;background:var(--bg-4);border-radius:3px;overflow:hidden}
+.score-bar{height:100%;border-radius:3px;transition:width 0.6s ease}
+.score-val{width:24px;text-align:right;font-size:10px;font-weight:600}
+.score-detail{color:var(--text-ghost);font-size:9px;width:130px;text-align:right}
+
+/* Total score */
+.score-total{display:flex;align-items:center;justify-content:space-between;padding-top:8px;margin-top:8px;border-top:1px solid var(--border)}
+.score-total-label{color:var(--text);font-size:11px;font-weight:600}
+.score-total-val{font-size:16px;font-weight:700}
+
+/* Metadata */
+.result-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border)}
+.meta-item{background:var(--bg-4);border:1px solid var(--border);padding:3px 8px;font-size:9px;border-radius:2px}
+.meta-item .lbl{color:var(--text-ghost)}
+.meta-item .val{color:var(--text)}
+
+/* PDF data */
+.pdf-data{margin-top:10px;padding:10px;background:rgba(168,85,247,0.05);border:1px solid rgba(168,85,247,0.2);border-radius:3px}
+.pdf-data-title{color:#a855f7;font-size:9px;font-weight:600;letter-spacing:1px;margin-bottom:6px}
+.pdf-row{display:flex;justify-content:space-between;font-size:10px;padding:2px 0}
+.pdf-row .lbl{color:var(--text-dim)}
+.pdf-row .val{color:var(--text)}
+
+/* Source badges */
+.sources{display:flex;gap:4px;margin-top:8px}
+.source-badge{font-size:8px;padding:2px 6px;border-radius:2px;letter-spacing:0.5px;text-transform:uppercase}
+.source-badge.ok{background:rgba(0,255,136,0.1);color:var(--green);border:1px solid rgba(0,255,136,0.2)}
+.source-badge.fail{background:rgba(255,59,48,0.08);color:var(--text-ghost);border:1px solid var(--border);text-decoration:line-through}
+
+/* Loading */
+.loading{text-align:center;padding:20px;color:var(--gold);font-size:10px}
+.loading .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--border-2);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Portfolio scan */
+.scan-progress{padding:10px 14px;background:var(--bg-3);border:1px solid var(--border);border-radius:3px;margin-bottom:10px;font-size:10px;color:var(--text-dim)}
+.scan-progress .bar{height:4px;background:var(--bg-4);border-radius:2px;margin-top:6px;overflow:hidden}
+.scan-progress .bar-fill{height:100%;background:var(--gold);transition:width 0.3s}
+
+/* Empty state */
+.empty{text-align:center;padding:60px 20px;color:var(--text-ghost)}
+.empty .icon{font-size:32px;margin-bottom:10px;opacity:0.5}
+.empty .title{font-size:12px;color:var(--text-dark);margin-bottom:4px}
+.empty .desc{font-size:10px}
+
+/* History */
+.history-item{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:10px;cursor:pointer}
+.history-item:hover{color:var(--gold)}
+.history-item .tk{color:var(--text);font-weight:500}
+.history-item .sc{font-weight:600}
+.history-item .dt{color:var(--text-ghost);font-size:9px}
+
+/* Error */
+.error-msg{background:rgba(255,59,48,0.08);border:1px solid rgba(255,59,48,0.2);color:var(--red);padding:10px;border-radius:3px;font-size:10px;margin-bottom:10px}
+
+/* Brief */
+.card-brief{background:#080c10;border:1px solid #1e2a35;border-radius:3px;padding:10px 12px;margin-top:10px}
+.brief-label{font-size:9px;font-weight:700;color:var(--gold);letter-spacing:2px;margin-bottom:6px}
+.brief-text{font-size:11px;color:#8a9ab0;line-height:1.6;margin:0;font-family:'JetBrains Mono',monospace}
+
+/* Resolved ticker badge */
+.resolved-badge{font-size:9px;color:var(--green);margin-left:6px;opacity:0.8}
+
+/* Status bar */
+.status-bar{background:var(--bg-3);padding:3px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);font-size:9px;color:var(--text-ghost)}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-logo">
+    <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#08081a"/><line x1="9" y1="8" x2="16" y2="16" stroke="#c9a84c" stroke-width=".6" opacity=".35"/><line x1="16" y1="16" x2="25" y2="12" stroke="#c9a84c" stroke-width=".6" opacity=".35"/><line x1="16" y1="16" x2="11" y2="25" stroke="#c9a84c" stroke-width=".6" opacity=".35"/><circle cx="9" cy="8" r="3" fill="#c9a84c" opacity=".8"/><circle cx="16" cy="16" r="4" fill="#c9a84c"/><circle cx="25" cy="12" r="2.5" fill="#c9a84c" opacity=".7"/><circle cx="11" cy="25" r="2" fill="#c9a84c" opacity=".45"/></svg>
+    <h1>OLYOS CAPITAL</h1>
+    <span class="ver">HIGGONS AGENT v1.0</span>
+  </div>
+  <div class="hdr-mid">SCORING MULTI-SOURCES • METHODE WILLIAM HIGGONS • PER • ROE • DETTE • SMALL CAP • MOMENTUM</div>
+  <div class="hdr-right">
+    <div class="hdr-nav">
+      <a href="/">PORTFOLIO</a>
+      <a href="/screener">SCREENER</a>
+      <a href="/news">NEWS</a>
+      <a href="/agent" class="active">AGENT</a>
+    </div>
+    <span class="hdr-time" id="clock"></span>
+    <a class="hdr-back" href="/">&#9668; TERMINAL</a>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <span id="status-text">HIGGONS AGENT READY</span>
+  <span id="status-time"></span>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Single ticker analysis -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Analyser une valeur</div>
+      <div class="input-group">
+        <input type="text" id="ticker-input" placeholder="ex: RWM.PA, PANDORA, SII" autocomplete="off">
+        <button class="btn primary" id="btn-analyze" onclick="analyzeTicker()">GO</button>
+      </div>
+      <div style="color:var(--text-ghost);font-size:9px;margin-top:2px">Suffixe auto-detecte (.PA, .CO, .DE...)</div>
+    </div>
+
+    <!-- PDF upload -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Upload rapport analyste (PDF)</div>
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('pdf-file').click()">
+        <div class="icon">&#128196;</div>
+        <div class="label">Cliquer ou glisser un PDF ici</div>
+        <div class="filename" id="pdf-filename"></div>
+      </div>
+      <input type="file" id="pdf-file" accept=".pdf" onchange="onPdfSelected(this)">
+      <div class="input-group">
+        <input type="text" id="pdf-ticker" placeholder="Ticker associe (ex: RWM.PA)">
+        <button class="btn primary" id="btn-upload" onclick="uploadPdf()" disabled>ANALYSER PDF</button>
+      </div>
+    </div>
+
+    <!-- Portfolio scan -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Scanner le portefeuille</div>
+      <button class="btn primary" style="width:100%" id="btn-scan" onclick="scanPortfolio()">LANCER LE SCAN COMPLET</button>
+      <div style="color:var(--text-ghost);font-size:9px;margin-top:6px">Analyse toutes les positions avec score Higgons</div>
+    </div>
+
+    <!-- History -->
+    <div class="sidebar-section" style="flex:1">
+      <div class="sidebar-title">Historique des analyses</div>
+      <div id="history-list">
+        <div style="color:var(--text-ghost);font-size:10px;text-align:center;padding:10px">Aucune analyse</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content" id="content">
+    <div class="empty">
+      <div class="icon">&#128202;</div>
+      <div class="title">HIGGONS AGENT</div>
+      <div class="desc">Entrez un ticker ou scannez le portefeuille pour calculer les scores Higgons</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ═══ CLOCK ═══
+function updateClock(){
+  const now=new Date();
+  const h=String(now.getHours()).padStart(2,'0');
+  const m=String(now.getMinutes()).padStart(2,'0');
+  const s=String(now.getSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent=h+':'+m+':'+s;
+  document.getElementById('status-time').textContent=now.toLocaleDateString('fr-FR')+' '+h+':'+m;
+}
+setInterval(updateClock,1000);
+updateClock();
+
+// ═══ STATUS ═══
+function setStatus(msg){document.getElementById('status-text').textContent=msg}
+
+// ═══ ANALYZE TICKER ═══
+async function analyzeTicker(){
+  const input=document.getElementById('ticker-input');
+  const ticker=input.value.trim().toUpperCase();
+  if(!ticker)return;
+
+  const btn=document.getElementById('btn-analyze');
+  btn.disabled=true;
+  setStatus('ANALYZING '+ticker+'...');
+  showLoading('Analyse de '+ticker+' en cours...');
+
+  try{
+    const resp=await fetch('/?action=agent_analyze&ticker='+encodeURIComponent(ticker),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:ticker})});
+    const data=await resp.json();
+    if(data.error){
+      showError(data.error);
+    }else{
+      showResult(data);
+      refreshHistory();
+    }
+  }catch(e){
+    showError('Erreur: '+e.message);
+  }finally{
+    btn.disabled=false;
+    setStatus('HIGGONS AGENT READY');
+  }
+}
+
+// Enter key triggers analysis
+document.getElementById('ticker-input').addEventListener('keydown',function(e){
+  if(e.key==='Enter')analyzeTicker();
+});
+
+// ═══ PDF UPLOAD ═══
+let selectedPdfFile=null;
+
+function onPdfSelected(input){
+  if(input.files&&input.files[0]){
+    selectedPdfFile=input.files[0];
+    document.getElementById('pdf-filename').textContent=selectedPdfFile.name;
+    document.getElementById('btn-upload').disabled=false;
+  }
+}
+
+// Drag & drop
+const uploadZone=document.getElementById('upload-zone');
+uploadZone.addEventListener('dragover',e=>{e.preventDefault();uploadZone.classList.add('dragover')});
+uploadZone.addEventListener('dragleave',()=>uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop',e=>{
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  if(e.dataTransfer.files&&e.dataTransfer.files[0]){
+    const f=e.dataTransfer.files[0];
+    if(f.type==='application/pdf'){
+      selectedPdfFile=f;
+      document.getElementById('pdf-filename').textContent=f.name;
+      document.getElementById('btn-upload').disabled=false;
+      // Try to auto-detect ticker from filename
+      const match=f.name.match(/([A-Z]{2,6})/);
+      if(match&&!document.getElementById('pdf-ticker').value){
+        document.getElementById('pdf-ticker').value=match[1]+'.PA';
+      }
+    }
+  }
+});
+
+async function uploadPdf(){
+  if(!selectedPdfFile)return;
+  const ticker=document.getElementById('pdf-ticker').value.trim().toUpperCase();
+  if(!ticker){alert('Ticker requis');return}
+
+  const btn=document.getElementById('btn-upload');
+  btn.disabled=true;
+  setStatus('PARSING PDF FOR '+ticker+'...');
+  showLoading('Extraction PDF + analyse Claude en cours...');
+
+  try{
+    const formData=new FormData();
+    formData.append('pdf',selectedPdfFile);
+    formData.append('ticker',ticker);
+
+    const resp=await fetch('/?action=agent_upload_pdf',{method:'POST',body:formData});
+    const data=await resp.json();
+    if(data.error){
+      showError(data.error);
+    }else{
+      showResult(data);
+      refreshHistory();
+    }
+  }catch(e){
+    showError('Erreur: '+e.message);
+  }finally{
+    btn.disabled=false;
+    setStatus('HIGGONS AGENT READY');
+  }
+}
+
+// ═══ PORTFOLIO SCAN ═══
+async function scanPortfolio(){
+  const btn=document.getElementById('btn-scan');
+  btn.disabled=true;
+  setStatus('SCANNING PORTFOLIO...');
+  showLoading('Scan du portefeuille en cours... (peut prendre quelques minutes)');
+
+  try{
+    const resp=await fetch('/?action=agent_scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const data=await resp.json();
+    if(data.error){
+      showError(data.error);
+    }else if(data.results){
+      showScanResults(data.results);
+      refreshHistory();
+    }
+  }catch(e){
+    showError('Erreur: '+e.message);
+  }finally{
+    btn.disabled=false;
+    setStatus('HIGGONS AGENT READY');
+  }
+}
+
+// ═══ HISTORY ═══
+async function refreshHistory(){
+  try{
+    const resp=await fetch('/?action=agent_history');
+    const data=await resp.json();
+    const list=document.getElementById('history-list');
+    if(!data.history||Object.keys(data.history).length===0){
+      list.innerHTML='<div style="color:var(--text-ghost);font-size:10px;text-align:center;padding:10px">Aucune analyse</div>';
+      return;
+    }
+    // Sort by date desc
+    const entries=Object.entries(data.history).sort((a,b)=>(b[1].analyzed_at||'').localeCompare(a[1].analyzed_at||''));
+    let html='';
+    for(const [tk,d] of entries){
+      const h=d.higgons||{};
+      const dt=d.analyzed_at?new Date(d.analyzed_at).toLocaleDateString('fr-FR'):'';
+      const gradeColor=getGradeColor(h.grade);
+      html+=`<div class="history-item" onclick="analyzeTicker_direct('${tk}')">
+        <span class="tk">${tk}</span>
+        <span class="sc" style="color:${gradeColor}">${h.grade||'?'} ${h.total||0}/${h.max||25}</span>
+        <span class="dt">${dt}</span>
+      </div>`;
+    }
+    list.innerHTML=html;
+  }catch(e){/* ignore */}
+}
+
+async function analyzeTicker_direct(ticker){
+  document.getElementById('ticker-input').value=ticker;
+  analyzeTicker();
+}
+
+// ═══ RENDER FUNCTIONS ═══
+
+function showLoading(msg){
+  document.getElementById('content').innerHTML=`<div class="loading"><div class="spinner"></div><div>${msg}</div></div>`;
+}
+
+function showError(msg){
+  document.getElementById('content').innerHTML=`<div class="error-msg">${msg}</div>`;
+}
+
+function showResult(data){
+  const h=data.higgons||{};
+  const scores=h.scores||{};
+  const details=h.details||{};
+
+  let html=`<div class="result-card">`;
+  // Header (show resolved ticker if different from original)
+  const resolvedInfo = (data.original_ticker && data.resolved_ticker && data.original_ticker !== data.resolved_ticker)
+    ? `<span class="resolved-badge">${data.original_ticker} &#8594; ${data.resolved_ticker}</span>` : '';
+  html+=`<div class="result-header">
+    <div><span class="result-ticker">${data.ticker||''}</span><span class="result-name">${data.name||''}</span>${resolvedInfo}</div>
+    <div class="result-grade grade-${h.grade||'E'}">${h.grade||'?'}</div>
+  </div>`;
+
+  // Score bars
+  const criteria=[
+    {key:'per',label:'PER',color:'var(--blue)'},
+    {key:'roe',label:'ROE',color:'var(--green)'},
+    {key:'dette',label:'DETTE',color:'var(--amber)'},
+    {key:'small_cap',label:'SMALL CAP',color:'var(--yellow)'},
+    {key:'momentum',label:'MOMENTUM',color:'#a855f7'},
+  ];
+  for(const c of criteria){
+    const val=scores[c.key]||0;
+    const pct=val/5*100;
+    html+=`<div class="score-row">
+      <span class="score-label">${c.label}</span>
+      <div class="score-bar-bg"><div class="score-bar" style="width:${pct}%;background:${c.color}"></div></div>
+      <span class="score-val" style="color:${c.color}">${val}/5</span>
+      <span class="score-detail">${details[c.key]||''}</span>
+    </div>`;
+  }
+
+  // Total
+  const totalColor=getGradeColor(h.grade);
+  html+=`<div class="score-total">
+    <span class="score-total-label">SCORE HIGGONS</span>
+    <span class="score-total-val" style="color:${totalColor}">${h.total||0} / ${h.max||25} (${h.pct||0}%)</span>
+  </div>`;
+
+  // Metadata
+  html+=`<div class="result-meta">`;
+  if(data.current_price)html+=`<div class="meta-item"><span class="lbl">Prix </span><span class="val">${data.current_price} ${data.currency||'EUR'}</span></div>`;
+  if(data.pe_trailing)html+=`<div class="meta-item"><span class="lbl">PER </span><span class="val">${Number(data.pe_trailing).toFixed(1)}</span></div>`;
+  if(data.roe)html+=`<div class="meta-item"><span class="lbl">ROE </span><span class="val">${Number(data.roe).toFixed(1)}%</span></div>`;
+  if(data.market_cap)html+=`<div class="meta-item"><span class="lbl">Cap </span><span class="val">${formatCap(data.market_cap)}</span></div>`;
+  if(data.sector)html+=`<div class="meta-item"><span class="lbl">Secteur </span><span class="val">${data.sector}</span></div>`;
+  html+=`</div>`;
+
+  // Sources
+  const src=data.sources||{};
+  html+=`<div class="sources">`;
+  html+=`<span class="source-badge ${src.yahoo?'ok':'fail'}">YAHOO</span>`;
+  html+=`<span class="source-badge ${src.eod?'ok':'fail'}">EOD</span>`;
+  if(src.pdf)html+=`<span class="source-badge ok">PDF</span>`;
+  if(data.from_cache)html+=`<span class="source-badge" style="background:rgba(255,204,0,0.1);color:var(--yellow);border:1px solid rgba(255,204,0,0.2)">CACHE</span>`;
+  html+=`</div>`;
+
+  // PDF data if present
+  if(data.pdf_data){
+    const pd=data.pdf_data;
+    html+=`<div class="pdf-data"><div class="pdf-data-title">DONNEES RAPPORT ANALYSTE</div>`;
+    if(pd.analyst_firm)html+=`<div class="pdf-row"><span class="lbl">Bureau</span><span class="val">${pd.analyst_firm}</span></div>`;
+    if(pd.recommendation)html+=`<div class="pdf-row"><span class="lbl">Reco</span><span class="val">${pd.recommendation}</span></div>`;
+    if(pd.target_price)html+=`<div class="pdf-row"><span class="lbl">Objectif</span><span class="val">${pd.target_price} EUR</span></div>`;
+    if(pd.report_date)html+=`<div class="pdf-row"><span class="lbl">Date rapport</span><span class="val">${pd.report_date}</span></div>`;
+    if(pd.notes)html+=`<div class="pdf-row"><span class="lbl">Notes</span><span class="val">${pd.notes}</span></div>`;
+    html+=`</div>`;
+  }
+
+  // Brief
+  if(data.brief){
+    html+=`<div class="card-brief">
+      <div class="brief-label">ANALYSE</div>
+      <p class="brief-text">${data.brief}</p>
+    </div>`;
+  }
+
+  html+=`</div>`;
+  document.getElementById('content').innerHTML=html;
+}
+
+function showScanResults(results){
+  if(!results||results.length===0){
+    showError('Aucune position dans le portefeuille');
+    return;
+  }
+  let html=`<div style="color:var(--gold);font-size:11px;font-weight:600;letter-spacing:2px;margin-bottom:12px">SCAN PORTEFEUILLE — ${results.length} VALEURS</div>`;
+  for(const r of results){
+    html+=buildResultCard(r);
+  }
+  document.getElementById('content').innerHTML=html;
+}
+
+function buildResultCard(data){
+  const h=data.higgons||{};
+  const scores=h.scores||{};
+  const totalColor=getGradeColor(h.grade);
+
+  let html=`<div class="result-card" style="cursor:pointer" onclick="document.getElementById('ticker-input').value='${data.ticker}';analyzeTicker()">`;
+  html+=`<div class="result-header">
+    <div><span class="result-ticker">${data.ticker||''}</span><span class="result-name">${data.name||''}</span></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="color:${totalColor};font-size:12px;font-weight:600">${h.total||0}/${h.max||25}</span>
+      <div class="result-grade grade-${h.grade||'E'}">${h.grade||'?'}</div>
+    </div>
+  </div>`;
+
+  // Compact score display
+  const criteria=['per','roe','dette','small_cap','momentum'];
+  const labels={per:'PER',roe:'ROE',dette:'DETTE',small_cap:'SCAP',momentum:'MOM'};
+  const colors={per:'var(--blue)',roe:'var(--green)',dette:'var(--amber)',small_cap:'var(--yellow)',momentum:'#a855f7'};
+  html+=`<div style="display:flex;gap:12px;flex-wrap:wrap">`;
+  for(const c of criteria){
+    const val=scores[c]||0;
+    html+=`<div style="text-align:center"><div style="color:${colors[c]};font-size:14px;font-weight:700">${val}</div><div style="color:var(--text-ghost);font-size:8px;letter-spacing:0.5px">${labels[c]}</div></div>`;
+  }
+  html+=`</div>`;
+
+  // Brief (compact for scan view)
+  if(data.brief){
+    html+=`<div class="card-brief" style="margin-top:8px">
+      <div class="brief-label">ANALYSE</div>
+      <p class="brief-text">${data.brief}</p>
+    </div>`;
+  }
+
+  if(data.error)html+=`<div class="error-msg" style="margin-top:8px">${data.error}</div>`;
+  html+=`</div>`;
+  return html;
+}
+
+// ═══ HELPERS ═══
+function getGradeColor(grade){
+  const map={A:'var(--green)',B:'var(--blue)',C:'var(--yellow)',D:'var(--orange)',E:'var(--red)'};
+  return map[grade]||'var(--text-ghost)';
+}
+
+function formatCap(mc){
+  if(!mc)return'—';
+  if(mc>=1e9)return(mc/1e9).toFixed(1)+'B';
+  if(mc>=1e6)return(mc/1e6).toFixed(0)+'M';
+  return mc.toLocaleString();
+}
+
+// ═══ INIT ═══
+refreshHistory();
+</script>
+</body>
+</html>
