@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Olyos Capital — News Feed</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2308081a'/><line x1='9' y1='8' x2='16' y2='16' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><line x1='16' y1='16' x2='25' y2='12' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><line x1='16' y1='16' x2='11' y2='25' stroke='%23c9a84c' stroke-width='.6' opacity='.35'/><circle cx='9' cy='8' r='3' fill='%23c9a84c' opacity='.8'/><circle cx='16' cy='16' r='4' fill='%23c9a84c'/><circle cx='25' cy='12' r='2.5' fill='%23c9a84c' opacity='.7'/><circle cx='11' cy='25' r='2' fill='%23c9a84c' opacity='.45'/></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-0:#04040a;--bg-1:#08080e;--bg-2:#0a0a12;--bg-3:#0d0d14;--bg-4:#111118;
+  --border:#1a1a2e;--border-2:#2a2a3e;
+  --amber:#ff9500;--amber-dim:#cc7700;--green:#00ff88;--green-dim:#00cc66;
+  --red:#ff3b30;--blue:#00bfff;--yellow:#ffcc00;--orange:#ff6644;
+  --text:#ccc;--text-dim:#888;--text-dark:#555;--text-ghost:#333;
+  --cat-resultats:#00ff88;--cat-ma:#ff9500;--cat-macro:#00bfff;
+  --cat-secteur:#ffcc00;--cat-analyse:#a855f7;--cat-marche:#888;
+}
+body{font-family:'JetBrains Mono',Consolas,'Courier New',monospace;background:var(--bg-0);color:var(--text);font-size:12px;min-height:100vh;display:flex;flex-direction:column}
+
+/* ═══ HEADER ═══ */
+.hdr{background:linear-gradient(180deg,var(--bg-4) 0%,var(--bg-3) 100%);padding:6px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--amber)}
+.hdr-logo{display:flex;align-items:center;gap:10px}
+.hdr-logo svg{width:20px;height:20px}
+.hdr-logo h1{font-size:14px;font-weight:700;color:var(--amber);letter-spacing:3px}
+.hdr-logo .ver{color:var(--text-ghost);font-size:10px;letter-spacing:1px}
+.hdr-mid{color:var(--text-dark);font-size:10px;letter-spacing:1px}
+.hdr-right{display:flex;align-items:center;gap:14px}
+.hdr-time{color:var(--green);font-size:11px;font-weight:600}
+.hdr-back{background:var(--bg-4);border:1px solid var(--border-2);color:var(--text-dim);padding:4px 14px;font-family:inherit;font-size:10px;cursor:pointer;letter-spacing:1px;text-decoration:none;text-transform:uppercase}
+.hdr-back:hover{background:var(--amber);color:#000;border-color:var(--amber)}
+.hdr-nav{display:flex;gap:4px}
+.hdr-nav a{background:var(--bg-4);border:1px solid var(--border);color:var(--text-dark);padding:4px 10px;font-family:inherit;font-size:9px;cursor:pointer;letter-spacing:0.5px;text-decoration:none}
+.hdr-nav a:hover{color:var(--amber);border-color:var(--amber)}
+.hdr-nav a.active{color:var(--blue);border-color:var(--blue)}
+.blink{animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+
+/* ═══ STATUS BAR ═══ */
+.status-bar{background:var(--bg-3);padding:3px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);font-size:9px;color:var(--text-ghost)}
+.status-bar .cache-indicator{display:flex;align-items:center;gap:6px}
+.cache-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.cache-dot.fresh{background:var(--green)}
+.cache-dot.stale{background:var(--amber);animation:blink 2s infinite}
+.cache-dot.loading{background:var(--blue);animation:pulse 0.8s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(1.3)}}
+.status-bar button{background:none;border:1px solid var(--border-2);color:var(--text-dark);padding:2px 8px;font-family:inherit;font-size:9px;cursor:pointer;letter-spacing:0.5px}
+.status-bar button:hover{color:var(--amber);border-color:var(--amber)}
+
+/* ═══ KPI STRIP ═══ */
+.kpis{background:var(--bg-1);padding:8px 16px;display:flex;gap:28px;align-items:center;border-bottom:1px solid var(--border);overflow-x:auto}
+.kpi{display:flex;align-items:baseline;gap:8px;white-space:nowrap}
+.kpi-label{color:var(--text-ghost);font-size:9px;text-transform:uppercase;letter-spacing:1px}
+.kpi-val{font-size:16px;font-weight:700}
+.kpi-sub{color:var(--text-dark);font-size:10px}
+
+/* ═══ MAIN LAYOUT ═══ */
+.main{display:flex;flex:1;overflow:hidden}
+
+/* ═══ LEFT PANEL ═══ */
+.sidebar{width:280px;min-width:280px;background:var(--bg-2);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;gap:0}
+.sidebar-section{padding:12px;border-bottom:1px solid var(--border)}
+.sidebar-title{color:var(--amber);font-size:9px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+
+/* Category filters */
+.cat-filters{display:flex;flex-wrap:wrap;gap:4px}
+.cat-btn{background:var(--bg-4);border:1px solid var(--border-2);color:var(--text-dim);padding:4px 8px;font-family:inherit;font-size:9px;cursor:pointer;border-radius:2px;transition:all 0.15s}
+.cat-btn:hover{border-color:var(--text-dim)}
+.cat-btn.active{color:#000;font-weight:600}
+.cat-btn[data-cat="Tous"].active{background:var(--amber);border-color:var(--amber)}
+.cat-btn[data-cat="Résultats"].active{background:var(--cat-resultats);border-color:var(--cat-resultats)}
+.cat-btn[data-cat="M&A"].active{background:var(--cat-ma);border-color:var(--cat-ma)}
+.cat-btn[data-cat="Macro"].active{background:var(--cat-macro);border-color:var(--cat-macro)}
+.cat-btn[data-cat="Secteur"].active{background:var(--cat-secteur);border-color:var(--cat-secteur)}
+.cat-btn[data-cat="Analyse"].active{background:var(--cat-analyse);border-color:var(--cat-analyse)}
+.cat-btn[data-cat="Marché"].active{background:var(--cat-marche);border-color:var(--cat-marche)}
+
+/* Source checkboxes */
+.source-list{display:flex;flex-direction:column;gap:4px}
+.source-item{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-dim);cursor:pointer}
+.source-item input{accent-color:var(--amber)}
+.source-item:hover{color:var(--text)}
+
+/* Portfolio filter */
+.portfolio-filter{display:flex;gap:4px}
+.pf-btn{flex:1;background:var(--bg-4);border:1px solid var(--border-2);color:var(--text-dark);padding:5px 4px;font-family:inherit;font-size:9px;cursor:pointer;text-align:center;transition:all 0.15s}
+.pf-btn:hover{border-color:var(--text-dim)}
+.pf-btn.active{background:var(--blue);color:#000;border-color:var(--blue);font-weight:600}
+
+/* Search */
+.search-input{width:100%;background:var(--bg-4);border:1px solid var(--border-2);color:var(--text);padding:6px 8px;font-family:inherit;font-size:10px;outline:none}
+.search-input:focus{border-color:var(--amber)}
+.search-input::placeholder{color:var(--text-ghost)}
+
+/* ═══ DIGEST PANEL ═══ */
+.digest-panel{background:linear-gradient(135deg,var(--bg-3) 0%,#0d1020 100%);border-bottom:1px solid var(--border)}
+.digest-header{padding:10px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}
+.digest-title{color:var(--blue);font-size:10px;font-weight:700;letter-spacing:2px}
+.digest-badge{background:rgba(0,191,255,0.12);color:var(--blue);padding:1px 6px;border-radius:2px;font-size:8px;border:1px solid rgba(0,191,255,0.3);margin-left:6px}
+.digest-actions{display:flex;gap:4px}
+.digest-btn{background:none;border:1px solid var(--border-2);color:var(--text-dark);padding:2px 8px;font-family:inherit;font-size:9px;cursor:pointer}
+.digest-btn:hover{color:var(--blue);border-color:var(--blue)}
+.digest-btn.generate{background:rgba(0,191,255,0.08);color:var(--blue);border-color:rgba(0,191,255,0.3)}
+.digest-btn.generate:hover{background:var(--blue);color:#000}
+.digest-content{padding:10px 12px;font-size:10px;color:var(--text-dim);line-height:1.7;max-height:300px;overflow-y:auto}
+.digest-content p,.digest-content li{margin-bottom:4px}
+.digest-content strong{color:var(--text)}
+.digest-meta{padding:4px 12px 8px;font-size:8px;color:var(--text-ghost)}
+.digest-loading{padding:20px;text-align:center;color:var(--blue);font-size:10px}
+.digest-empty{padding:16px 12px;text-align:center;color:var(--text-ghost);font-size:10px}
+
+/* ═══ ARTICLES FEED ═══ */
+.feed{flex:1;overflow-y:auto;padding:12px}
+.feed-empty{text-align:center;padding:40px;color:var(--text-ghost)}
+
+/* Article card */
+.article{background:var(--bg-2);border:1px solid var(--border);border-radius:3px;padding:12px;margin-bottom:8px;transition:all 0.15s;cursor:default}
+.article:hover{border-color:var(--border-2);background:var(--bg-3)}
+.article-header{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}
+.article-title{font-size:11px;font-weight:500;color:var(--text);line-height:1.5;flex:1}
+.article-title a{color:var(--text);text-decoration:none}
+.article-title a:hover{color:var(--amber)}
+.article-time{color:var(--text-ghost);font-size:9px;white-space:nowrap;min-width:70px;text-align:right}
+.article-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.article-source{font-size:9px;color:var(--text-dark);background:var(--bg-4);padding:1px 6px;border-radius:2px;border:1px solid var(--border)}
+.article-cat{font-size:8px;font-weight:600;padding:1px 6px;border-radius:2px;letter-spacing:0.5px;text-transform:uppercase}
+.article-cat.cat-resultats{background:rgba(0,255,136,0.1);color:var(--cat-resultats);border:1px solid rgba(0,255,136,0.2)}
+.article-cat.cat-ma{background:rgba(255,149,0,0.1);color:var(--cat-ma);border:1px solid rgba(255,149,0,0.2)}
+.article-cat.cat-macro{background:rgba(0,191,255,0.1);color:var(--cat-macro);border:1px solid rgba(0,191,255,0.2)}
+.article-cat.cat-secteur{background:rgba(255,204,0,0.1);color:var(--cat-secteur);border:1px solid rgba(255,204,0,0.2)}
+.article-cat.cat-analyse{background:rgba(168,85,247,0.1);color:var(--cat-analyse);border:1px solid rgba(168,85,247,0.2)}
+.article-cat.cat-marche{background:rgba(136,136,136,0.1);color:var(--cat-marche);border:1px solid rgba(136,136,136,0.2)}
+.article-ticker{font-size:8px;font-weight:600;padding:1px 5px;border-radius:2px;background:rgba(255,149,0,0.1);color:var(--amber);border:1px solid rgba(255,149,0,0.2);cursor:pointer}
+.article-ticker:hover{background:var(--amber);color:#000}
+.article-ticker.pf{background:rgba(0,255,136,0.12);color:var(--green);border-color:rgba(0,255,136,0.3)}
+.article-ticker.wl{background:rgba(0,191,255,0.12);color:var(--blue);border-color:rgba(0,191,255,0.3)}
+.article-summary{font-size:10px;color:var(--text-dark);line-height:1.5;margin-top:6px}
+
+/* Portfolio indicator */
+.article.has-portfolio{border-left:3px solid var(--green)}
+.article.has-watchlist{border-left:3px solid var(--blue)}
+
+/* ═══ SCROLLBAR ═══ */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg-0)}
+::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-ghost)}
+
+/* ═══ FOOTER ═══ */
+.footer{background:var(--bg-3);padding:4px 16px;border-top:1px solid var(--border);font-size:8px;color:var(--text-ghost);text-align:center;letter-spacing:0.5px}
+
+/* ═══ RESPONSIVE ═══ */
+@media(max-width:900px){.sidebar{width:220px;min-width:220px}.main{flex-direction:column}.sidebar{width:100%;min-width:100%;max-height:350px;overflow-y:auto}}
+</style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<div class="hdr">
+  <div class="hdr-logo">
+    <svg viewBox="0 0 38 38" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="s4" viewBox="0 0 20 20"><path d="M10,0 L12,7.5 L20,10 L12,12.5 L10,20 L8,12.5 L0,10 L8,7.5 Z"/></symbol>
+        <symbol id="sp" viewBox="0 0 20 20"><path d="M10,0 L10.8,8.2 L20,10 L10.8,11.8 L10,20 L9.2,11.8 L0,10 L9.2,8.2 Z"/></symbol>
+      </defs>
+      <line x1="10" y1="10" x2="19" y2="19" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+      <line x1="19" y1="19" x2="30" y2="14" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+      <line x1="19" y1="19" x2="13" y2="30" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+      <line x1="30" y1="14" x2="26" y2="28" stroke="#ff9500" stroke-width=".5" opacity=".3"/>
+      <use href="#s4" x="5" y="5" width="10" height="10" fill="#ff9500" opacity=".8"/>
+      <use href="#sp" x="12" y="12" width="14" height="14" fill="#ff9500"/>
+      <use href="#s4" x="25" y="9" width="9" height="9" fill="#ff9500" opacity=".7"/>
+      <use href="#sp" x="9.5" y="27" width="7" height="7" fill="#ff9500" opacity=".5"/>
+    </svg>
+    <h1>OLYOS</h1>
+    <span class="ver">NEWS FEED v1.0</span>
+  </div>
+  <div class="hdr-mid">ACTUALITES FINANCIERES • EUROPE • FLUX RSS EN TEMPS REEL</div>
+  <div class="hdr-right">
+    <div class="hdr-nav">
+      <a href="/">PORTFOLIO</a>
+      <a href="/screener">SCREENER</a>
+      <a href="/news" class="active">NEWS</a>
+    </div>
+    <span class="hdr-time" id="clock"></span>
+    <a class="hdr-back" href="/">◄ TERMINAL</a>
+  </div>
+</div>
+
+<!-- ═══ STATUS BAR ═══ -->
+<div class="status-bar">
+  <div class="cache-indicator">
+    <span class="cache-dot loading" id="cache-dot"></span>
+    <span id="cache-status">Chargement des flux...</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span id="article-count" style="color:var(--text-ghost)"></span>
+    <button onclick="refreshNews()">⟳ REFRESH</button>
+  </div>
+</div>
+
+<!-- ═══ KPI STRIP ═══ -->
+<div class="kpis" id="kpi-strip">
+  <div class="kpi"><span class="kpi-label">Chargement</span><span class="kpi-val" style="color:var(--amber)">...</span></div>
+</div>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main">
+
+  <!-- LEFT SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Category filters -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Categorie</div>
+      <div class="cat-filters">
+        <button class="cat-btn active" data-cat="Tous" onclick="setCategory('Tous',this)">Tous</button>
+        <button class="cat-btn" data-cat="Résultats" onclick="setCategory('Résultats',this)">Résultats</button>
+        <button class="cat-btn" data-cat="M&A" onclick="setCategory('M&A',this)">M&A</button>
+        <button class="cat-btn" data-cat="Macro" onclick="setCategory('Macro',this)">Macro</button>
+        <button class="cat-btn" data-cat="Secteur" onclick="setCategory('Secteur',this)">Secteur</button>
+        <button class="cat-btn" data-cat="Analyse" onclick="setCategory('Analyse',this)">Analyse</button>
+        <button class="cat-btn" data-cat="Marché" onclick="setCategory('Marché',this)">Marché</button>
+      </div>
+    </div>
+
+    <!-- Source filters -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Sources</div>
+      <div class="source-list" id="source-list">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Portfolio filter -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Portefeuille</div>
+      <div class="portfolio-filter">
+        <button class="pf-btn active" onclick="setPortfolioFilter('all',this)">Toutes</button>
+        <button class="pf-btn" onclick="setPortfolioFilter('portfolio',this)">Portfolio</button>
+        <button class="pf-btn" onclick="setPortfolioFilter('watchlist',this)">Watchlist</button>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="sidebar-section">
+      <div class="sidebar-title">Recherche</div>
+      <input type="text" class="search-input" id="search-input" placeholder="Rechercher..." oninput="applyFilters()">
+    </div>
+
+    <!-- AI Digest -->
+    <div class="digest-panel">
+      <div class="digest-header">
+        <div>
+          <span class="digest-title">DAILY BRIEF IA</span>
+          <span class="digest-badge" id="digest-date"></span>
+        </div>
+        <div class="digest-actions">
+          <button class="digest-btn generate" id="digest-generate-btn" onclick="generateDigest()">Generer</button>
+        </div>
+      </div>
+      <div id="digest-content" class="digest-empty">
+        Cliquez "Generer" pour creer le brief du jour
+      </div>
+      <div class="digest-meta" id="digest-meta"></div>
+    </div>
+
+  </div>
+
+  <!-- ARTICLES FEED -->
+  <div class="feed" id="feed">
+    <div class="feed-empty" id="feed-loading">
+      <div style="color:var(--amber);font-size:14px;margin-bottom:8px">Chargement des flux RSS...</div>
+      <div style="font-size:10px">Agregation depuis 7 sources</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══ FOOTER ═══ -->
+<div class="footer">OLYOS CAPITAL • NEWS FEED • Sources : ABCBourse, Investing.com, BFM Business, Le Figaro, Capital, EasyBourse • Auto-refresh 5min</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let ALL_ARTICLES = [];
+let FILTERED = [];
+let CURRENT_CATEGORY = 'Tous';
+let CURRENT_PF_FILTER = 'all';
+let SOURCES_ENABLED = {};
+const VISIBLE_BATCH = 30;
+let visibleCount = VISIBLE_BATCH;
+
+// ═══════════════════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').innerHTML =
+    now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) +
+    ' CET <span class="blink">●</span>';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ═══════════════════════════════════════════════════════════
+// DATA LOADING
+// ═══════════════════════════════════════════════════════════
+async function loadNews() {
+  try {
+    setCacheStatus('loading', 'Chargement des flux...');
+    const resp = await fetch('/?action=news_articles', { signal: AbortSignal.timeout(30000) });
+    const data = await resp.json();
+
+    if (data.articles && data.articles.length > 0) {
+      ALL_ARTICLES = data.articles;
+      initSourceFilters();
+      applyFilters();
+      setCacheStatus('fresh', `${ALL_ARTICLES.length} articles • ${Object.keys(SOURCES_ENABLED).length} sources`);
+    } else {
+      setCacheStatus('stale', 'Aucun article disponible');
+      document.getElementById('feed').innerHTML = '<div class="feed-empty">Aucun article disponible. Verifiez votre connexion internet.</div>';
+    }
+  } catch (e) {
+    console.error('Error loading news:', e);
+    setCacheStatus('stale', 'Erreur de chargement');
+    document.getElementById('feed').innerHTML = '<div class="feed-empty">Erreur de chargement des flux RSS.<br>Verifiez votre connexion internet.</div>';
+  }
+}
+
+function refreshNews() {
+  ALL_ARTICLES = [];
+  visibleCount = VISIBLE_BATCH;
+  document.getElementById('feed').innerHTML = '<div class="feed-empty" style="color:var(--amber)">Rafraichissement...</div>';
+  loadNews();
+}
+
+// ═══════════════════════════════════════════════════════════
+// SOURCE FILTERS
+// ═══════════════════════════════════════════════════════════
+function initSourceFilters() {
+  const sources = [...new Set(ALL_ARTICLES.map(a => a.source))].sort();
+  SOURCES_ENABLED = {};
+  sources.forEach(s => SOURCES_ENABLED[s] = true);
+
+  const container = document.getElementById('source-list');
+  container.innerHTML = sources.map(s =>
+    `<label class="source-item">
+      <input type="checkbox" checked onchange="toggleSource('${s}',this.checked)">
+      <span>${s}</span>
+      <span style="color:var(--text-ghost);margin-left:auto">${ALL_ARTICLES.filter(a => a.source === s).length}</span>
+    </label>`
+  ).join('');
+}
+
+function toggleSource(source, enabled) {
+  SOURCES_ENABLED[source] = enabled;
+  applyFilters();
+}
+
+// ═══════════════════════════════════════════════════════════
+// FILTERS
+// ═══════════════════════════════════════════════════════════
+function setCategory(cat, btn) {
+  CURRENT_CATEGORY = cat;
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  visibleCount = VISIBLE_BATCH;
+  applyFilters();
+}
+
+function setPortfolioFilter(filter, btn) {
+  CURRENT_PF_FILTER = filter;
+  document.querySelectorAll('.pf-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  visibleCount = VISIBLE_BATCH;
+  applyFilters();
+}
+
+function applyFilters() {
+  const search = (document.getElementById('search-input').value || '').toLowerCase().trim();
+
+  FILTERED = ALL_ARTICLES.filter(a => {
+    // Category
+    if (CURRENT_CATEGORY !== 'Tous' && a.category !== CURRENT_CATEGORY) return false;
+    // Source
+    if (!SOURCES_ENABLED[a.source]) return false;
+    // Portfolio
+    if (CURRENT_PF_FILTER === 'portfolio' && !a.is_portfolio) return false;
+    if (CURRENT_PF_FILTER === 'watchlist' && !a.is_watchlist) return false;
+    // Search
+    if (search && !a.title.toLowerCase().includes(search) && !(a.summary || '').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  renderKPIs();
+  renderArticles();
+}
+
+// ═══════════════════════════════════════════════════════════
+// KPI STRIP
+// ═══════════════════════════════════════════════════════════
+function renderKPIs() {
+  const total = FILTERED.length;
+  const categories = {};
+  FILTERED.forEach(a => { categories[a.category] = (categories[a.category] || 0) + 1; });
+  const pfCount = FILTERED.filter(a => a.is_portfolio).length;
+  const wlCount = FILTERED.filter(a => a.is_watchlist).length;
+
+  const catHtml = Object.entries(categories).slice(0, 4).map(([cat, n]) =>
+    `<div class="kpi"><span class="kpi-label">${cat}</span><span class="kpi-val" style="color:var(--cat-${cat.toLowerCase().replace(/[&é]/g, 'a')})">${n}</span></div>`
+  ).join('');
+
+  document.getElementById('kpi-strip').innerHTML = `
+    <div class="kpi"><span class="kpi-label">Articles</span><span class="kpi-val" style="color:var(--amber)">${total}</span></div>
+    <div class="kpi"><span class="kpi-label">Sources</span><span class="kpi-val" style="color:var(--green)">${Object.values(SOURCES_ENABLED).filter(Boolean).length}</span></div>
+    ${pfCount ? `<div class="kpi"><span class="kpi-label">Portfolio</span><span class="kpi-val" style="color:var(--green)">${pfCount}</span></div>` : ''}
+    ${wlCount ? `<div class="kpi"><span class="kpi-label">Watchlist</span><span class="kpi-val" style="color:var(--blue)">${wlCount}</span></div>` : ''}
+    ${catHtml}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ARTICLE RENDERING
+// ═══════════════════════════════════════════════════════════
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function getCatClass(cat) {
+  const map = { 'Résultats': 'cat-resultats', 'M&A': 'cat-ma', 'Macro': 'cat-macro', 'Secteur': 'cat-secteur', 'Analyse': 'cat-analyse', 'Marché': 'cat-marche' };
+  return map[cat] || 'cat-marche';
+}
+
+function renderArticles() {
+  const feed = document.getElementById('feed');
+  const visible = FILTERED.slice(0, visibleCount);
+
+  if (visible.length === 0) {
+    feed.innerHTML = '<div class="feed-empty">Aucun article ne correspond aux filtres.</div>';
+    document.getElementById('article-count').textContent = '';
+    return;
+  }
+
+  document.getElementById('article-count').textContent = `${FILTERED.length} articles`;
+
+  let html = '';
+  visible.forEach(a => {
+    const pfClass = a.is_portfolio ? ' has-portfolio' : (a.is_watchlist ? ' has-watchlist' : '');
+    const tickersHtml = (a.tickers || []).map(t => {
+      const cls = a.is_portfolio ? 'pf' : (a.is_watchlist ? 'wl' : '');
+      return `<span class="article-ticker ${cls}" onclick="location.href='/detail?${t}'">${t.replace(/\.(PA|DE|MI|MC|AS|BR)$/, '')}</span>`;
+    }).join('');
+
+    html += `<div class="article${pfClass}">
+      <div class="article-header">
+        <div class="article-title"><a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.title)}</a></div>
+        <div class="article-time">${esc(a.published_ago)}</div>
+      </div>
+      <div class="article-meta">
+        <span class="article-source">${esc(a.source)}</span>
+        <span class="article-cat ${getCatClass(a.category)}">${esc(a.category)}</span>
+        ${tickersHtml}
+      </div>
+      ${a.summary ? `<div class="article-summary">${esc(a.summary)}</div>` : ''}
+    </div>`;
+  });
+
+  if (FILTERED.length > visibleCount) {
+    html += `<div style="text-align:center;padding:16px">
+      <button onclick="loadMore()" style="background:var(--bg-4);border:1px solid var(--border-2);color:var(--amber);padding:8px 20px;font-family:inherit;font-size:10px;cursor:pointer">
+        Charger plus (${FILTERED.length - visibleCount} restants)
+      </button>
+    </div>`;
+  }
+
+  feed.innerHTML = html;
+}
+
+function loadMore() {
+  visibleCount += VISIBLE_BATCH;
+  renderArticles();
+}
+
+// ═══════════════════════════════════════════════════════════
+// AI DIGEST
+// ═══════════════════════════════════════════════════════════
+async function loadDigest() {
+  try {
+    const resp = await fetch('/?action=news_digest');
+    const data = await resp.json();
+    if (data.success && data.content) {
+      showDigest(data);
+    }
+  } catch (e) {
+    console.log('No cached digest available');
+  }
+}
+
+async function generateDigest() {
+  const btn = document.getElementById('digest-generate-btn');
+  const content = document.getElementById('digest-content');
+  const meta = document.getElementById('digest-meta');
+
+  btn.textContent = 'Generation...';
+  btn.disabled = true;
+  content.className = 'digest-loading';
+  content.innerHTML = '<div style="color:var(--blue)">Claude analyse les actualites...</div>';
+
+  try {
+    const resp = await fetch('/?action=generate_news_digest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const data = await resp.json();
+
+    if (data.success) {
+      showDigest(data);
+    } else {
+      content.className = 'digest-empty';
+      content.textContent = 'Erreur : ' + (data.error || 'Erreur inconnue');
+    }
+  } catch (e) {
+    content.className = 'digest-empty';
+    content.textContent = 'Erreur de connexion';
+  } finally {
+    btn.textContent = 'Regenerer';
+    btn.disabled = false;
+  }
+}
+
+function showDigest(data) {
+  const content = document.getElementById('digest-content');
+  const meta = document.getElementById('digest-meta');
+  const dateBadge = document.getElementById('digest-date');
+
+  content.className = 'digest-content';
+  // Convert markdown-style bold to HTML
+  let html = esc(data.content)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+  content.innerHTML = html;
+
+  const date = new Date(data.timestamp);
+  dateBadge.textContent = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+
+  if (data.age_hours !== undefined && data.age_hours > 0) {
+    meta.textContent = `Genere il y a ${data.age_hours.toFixed(0)}h • ${data.article_count || '?'} articles analyses`;
+  } else {
+    meta.textContent = `Genere a l'instant • ${data.article_count || '?'} articles analyses`;
+  }
+
+  document.getElementById('digest-generate-btn').textContent = 'Regenerer';
+}
+
+// ═══════════════════════════════════════════════════════════
+// CACHE STATUS
+// ═══════════════════════════════════════════════════════════
+function setCacheStatus(state, text) {
+  const dot = document.getElementById('cache-dot');
+  dot.className = 'cache-dot ' + state;
+  document.getElementById('cache-status').textContent = text;
+}
+
+// ═══════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'r' || e.key === 'R') refreshNews();
+  if (e.key === 'Escape') {
+    document.getElementById('search-input').value = '';
+    setCategory('Tous', document.querySelector('.cat-btn[data-cat="Tous"]'));
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// INFINITE SCROLL
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  const feed = document.getElementById('feed');
+  feed.addEventListener('scroll', () => {
+    if (feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 100) {
+      if (visibleCount < FILTERED.length) {
+        visibleCount += VISIBLE_BATCH;
+        renderArticles();
+      }
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+loadNews();
+loadDigest();
+
+// Auto-refresh every 5 minutes
+setInterval(loadNews, 300000);
+
+</script>
+</body>
+</html>

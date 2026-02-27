@@ -1448,7 +1448,7 @@ function showDetail(ticker) {
 
   html += `</div>`;
   html += `<div style="margin-top:16px;text-align:center">
-    <a href="/?detail=${s.ticker}" class="hdr-back" style="display:inline-block;padding:8px 20px;font-size:11px">FICHE COMPLÈTE →</a>
+    <a href="/detail?${s.ticker}" class="hdr-back" style="display:inline-block;padding:8px 20px;font-size:11px">FICHE COMPLÈTE →</a>
   </div>`;
 
   document.getElementById('detail-body').innerHTML = html;

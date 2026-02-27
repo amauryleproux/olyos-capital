@@ -1,42 +1,1080 @@
 {% extends "base.html" %}
 
-{% block title %}Portfolio Dashboard - Olyos Capital{% endblock %}
+{% block title %}Olyos Capital — Portfolio Terminal{% endblock %}
 
-{% block content %}
-<div class="dashboard-container">
-    <header class="dashboard-header">
-        <h1>Portfolio Dashboard</h1>
-    </header>
-
-    <section class="portfolio-summary">
-        <div class="metric-card">
-            <span class="metric-label">Portfolio NAV</span>
-            <span class="metric-value">{{ nav_value }}</span>
-        </div>
-        <div class="metric-card">
-            <span class="metric-label">Daily P&L</span>
-            <span class="metric-value">{{ daily_pnl }}</span>
-        </div>
-    </section>
-
-    <section class="holdings-section">
-        <h2>Holdings</h2>
-        <div class="holdings-table-container">
-            {{ holdings_table|safe }}
-        </div>
-    </section>
-
-    <section class="chart-section">
-        <h2>Performance Chart</h2>
-        <div class="chart-container">
-            {{ chart_data|safe }}
-        </div>
-    </section>
-</div>
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 {% endblock %}
 
-{% block scripts %}
+{% block content %}
+
+<!-- ═══ BLOOMBERG LOADING OVERLAY ═══ -->
+
+<div class="bbg-loading-overlay active" id="bbg-loader">
+
+  <div class="bbg-loading-content">
+
+    <div class="bbg-loading-logo" style="display:flex;align-items:center;justify-content:center;gap:12px;">
+
+      <svg viewBox="0 0 38 38" width="48" height="48" xmlns="http://www.w3.org/2000/svg">
+
+        <defs>
+
+          <symbol id="s4-load" viewBox="0 0 20 20"><path d="M10,0 L12,7.5 L20,10 L12,12.5 L10,20 L8,12.5 L0,10 L8,7.5 Z"/></symbol>
+
+          <symbol id="sp-load" viewBox="0 0 20 20"><path d="M10,0 L10.8,8.2 L20,10 L10.8,11.8 L10,20 L9.2,11.8 L0,10 L9.2,8.2 Z"/></symbol>
+
+        </defs>
+
+        <line x1="10" y1="10" x2="19" y2="19" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+
+        <line x1="19" y1="19" x2="30" y2="14" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+
+        <line x1="19" y1="19" x2="13" y2="30" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+
+        <line x1="30" y1="14" x2="26" y2="28" stroke="#ff9500" stroke-width=".5" opacity=".3"/>
+
+        <use href="#s4-load" x="5" y="5" width="10" height="10" fill="#ff9500" opacity=".8"/>
+
+        <use href="#sp-load" x="12" y="12" width="14" height="14" fill="#ff9500"/>
+
+        <use href="#s4-load" x="25" y="9" width="9" height="9" fill="#ff9500" opacity=".7"/>
+
+        <use href="#sp-load" x="9.5" y="27" width="7" height="7" fill="#ff9500" opacity=".5"/>
+
+      </svg>
+
+      <span style="font-size:36px;font-weight:800;letter-spacing:8px;">OLYOS CAPITAL</span>
+
+    </div>
+
+    <div class="bbg-loading-subtitle">Portfolio Management System</div>
+
+
+
+    <div class="bbg-loading-bar-container">
+
+      <div class="bbg-loading-bar"></div>
+
+      <div class="bbg-loading-scanline"></div>
+
+    </div>
+
+
+
+    <div class="bbg-loading-stats">
+
+      <div class="bbg-loading-stat">
+
+        <div class="bbg-loading-stat-value" id="bbg-load-positions">—</div>
+
+        <div class="bbg-loading-stat-label">Positions</div>
+
+      </div>
+
+      <div class="bbg-loading-stat">
+
+        <div class="bbg-loading-stat-value" id="bbg-load-nav">—</div>
+
+        <div class="bbg-loading-stat-label">NAV</div>
+
+      </div>
+
+      <div class="bbg-loading-stat">
+
+        <div class="bbg-loading-stat-value" id="bbg-load-time">—</div>
+
+        <div class="bbg-loading-stat-label">Status</div>
+
+      </div>
+
+    </div>
+
+
+
+    <div class="bbg-loading-message" id="bbg-load-msg">Loading portfolio data...</div>
+
+  </div>
+
+</div>
+
+<div class="bb-top">
+
+<div class="bb-logo"><svg viewBox="0 0 38 38" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+
+  <defs>
+
+    <symbol id="s4" viewBox="0 0 20 20"><path d="M10,0 L12,7.5 L20,10 L12,12.5 L10,20 L8,12.5 L0,10 L8,7.5 Z"/></symbol>
+
+    <symbol id="sp" viewBox="0 0 20 20"><path d="M10,0 L10.8,8.2 L20,10 L10.8,11.8 L10,20 L9.2,11.8 L0,10 L9.2,8.2 Z"/></symbol>
+
+  </defs>
+
+  <line x1="10" y1="10" x2="19" y2="19" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+
+  <line x1="19" y1="19" x2="30" y2="14" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+
+  <line x1="19" y1="19" x2="13" y2="30" stroke="#ff9500" stroke-width=".7" opacity=".4"/>
+
+  <line x1="30" y1="14" x2="26" y2="28" stroke="#ff9500" stroke-width=".5" opacity=".3"/>
+
+  <use href="#s4" x="5" y="5" width="10" height="10" fill="#ff9500" opacity=".8"/>
+
+  <use href="#sp" x="12" y="12" width="14" height="14" fill="#ff9500"/>
+
+  <use href="#s4" x="25" y="9" width="9" height="9" fill="#ff9500" opacity=".7"/>
+
+  <use href="#sp" x="9.5" y="27" width="7" height="7" fill="#ff9500" opacity=".5"/>
+
+</svg><h1>OLYOS CAPITAL</h1><span>PORTFOLIO TERMINAL v4.0</span></div>
+
+<input type="text" class="bb-cmd" placeholder="Enter ticker..." onkeydown="if(event.key==='Enter')location.href='/detail?'+this.value.toUpperCase()"/>
+
+<div class="bb-time">{{ datetime_formatted }} CET <span class="blink">●</span></div>
+
+</div>
+
+<div class="bb-fkeys">
+
+<button class="fkey active" onclick="showTab(0)">F1 PORT</button>
+
+<button class="fkey" onclick="showTab(1)">F2 SCRN</button>
+
+<button class="fkey" onclick="showTab(2)">F3 WTCH</button>
+
+<button class="fkey" onclick="showTab(3)">F4 BACK</button>
+
+<button class="fkey" onclick="location.href='/?refresh=1'">F5 REFRESH</button>
+
+<button class="fkey" onclick="if(confirm('Run full scan?'))location.href='/?screener=1'">F6 SCAN</button>
+
+<button class="fkey" onclick="generateReport()" style="background:linear-gradient(135deg,#1a1a2e,#16213e);border-color:#ffd700;color:#ffd700;">F7 REPORT</button>
+
+<button class="fkey" onclick="toggleInsiderPanel()" style="background:linear-gradient(135deg,#1a2e1a,#162e16);border-color:#22c55e;color:#22c55e;">F8 INSIDER</button>
+
+<button class="fkey" onclick="toggleRebalancePanel()" style="background:linear-gradient(135deg,#2e1a1a,#3e1616);border-color:#f59e0b;color:#f59e0b;">F9 REBALANCE</button>
+
+<button class="fkey" onclick="toggleHeatmapPanel()" style="background:linear-gradient(135deg,#1a1a2e,#2e1a2e);border-color:#a855f7;color:#a855f7;">F10 HEATMAP</button>
+
+<button class="fkey" onclick="location.href='/news'" style="background:linear-gradient(135deg,#1a1a2e,#0d1a2e);border-color:#00bfff;color:#00bfff;">F11 NEWS</button>
+
+<button class="fkey" id="fkey-advisor" onclick="location.href='/advisor'" style="background:linear-gradient(135deg,#0f2533,#143042);border-color:#22d3ee;color:#22d3ee;" {% if not portfolio_advisor_ok %}disabled{% endif %}>F12 ADVISOR</button>
+
+</div>
+
+<div class="bb-tabs">
+
+<div class="bb-tab active" onclick="showTab(0)">Portfolio<span class="bb-badge">{{ active_count }}</span></div>
+
+<div class="bb-tab" onclick="location.href='/screener'">Screener<span class="bb-badge bb-badge-g">{{ opps }}</span></div>
+
+<div class="bb-tab" onclick="showTab(2)">Watchlist<span class="bb-badge">{{ watchlist_count }}</span></div>
+
+<div class="bb-tab" onclick="showTab(3)">Backtest<span class="bb-badge" style="background:#9933ff">🔬</span></div>
+
+<div class="bb-tab" onclick="location.href='/news'">News<span class="bb-badge" style="background:#00bfff">📰</span></div>
+
+</div>
+
+<div id="t0" class="tc active">
+
+<div class="bb-kpis">
+
+<div class="bb-kpi"><span class="bb-kpi-label">NAV</span><span class="bb-kpi-val">{{ tv_formatted }} EUR</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">P&L</span><span class="bb-kpi-val {% if pnl_is_negative %}down{% endif %}">{{ pnl_sign }}{{ pnl_abs }} EUR</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">%CHG</span><span class="bb-kpi-chg {% if pnl_is_positive %}up{% else %}down{% endif %}">{{ pnl_sign }}{{ pnl_pct }}%</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">POS</span><span style="color:#fff;font-size:14px;font-weight:600">{{ active_count }}</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">UPD</span><span style="color:#888;font-size:11px">{{ datetime_formatted }}</span></div>
+
+<div class="bb-kpi-divider"></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">ALPHA</span><span class="bb-kpi-val" id="kpi-alpha" style="color:#888">--</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">BETA</span><span style="color:#fff;font-size:14px;font-weight:600" id="kpi-beta">--</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">SHARPE</span><span style="color:#fff;font-size:14px;font-weight:600" id="kpi-sharpe">--</span></div>
+
+<div class="bb-kpi-divider"></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">REALIZED</span><span style="color:#888;font-size:14px;font-weight:600" id="kpi-realized-pnl">--</span></div>
+
+<div class="bb-kpi"><span class="bb-kpi-label">WIN RATE</span><span style="color:#fff;font-size:14px;font-weight:600" id="kpi-win-rate">--</span></div>
+
+</div>
+
+{% raw %}{% endraw %}
+
+<!-- ALERTS PANEL -->
+<div class="bb-alerts-panel" id="alerts-panel" style="display:none;">
+<div class="bb-alerts-header">
+<span class="bb-alerts-icon" id="alerts-icon">🔔</span>
+<span class="bb-alerts-title">ALERTS</span>
+<span class="bb-alerts-count" id="alerts-count">0</span>
+<button class="bb-btn bb-btn-sm" onclick="checkAlerts()" style="margin-left:auto;font-size:10px;padding:4px 8px;">🔄 REFRESH</button>
+</div>
+<div class="bb-alerts-list" id="alerts-list">
+<!-- Alerts will be loaded via JavaScript -->
+</div>
+</div>
+
+{% raw %}{% endraw %}
+
+<div class="bb-portfolio-chart">
+
+<div class="bb-portfolio-chart-header">
+
+<span class="bb-portfolio-chart-title">📈 Portfolio Performance</span>
+
+<div class="bb-chart-period">
+
+<button onclick="setNavPeriod(7)" id="nav-1w">1W</button>
+
+<button onclick="setNavPeriod(30)" id="nav-1m">1M</button>
+
+<button onclick="setNavPeriod(90)" id="nav-3m">3M</button>
+
+<button onclick="setNavPeriod(365)" id="nav-1y" class="active">ALL</button>
+
+</div>
+
+</div>
+
+<div class="bb-portfolio-chart-canvas"><canvas id="navChart"></canvas></div>
+
+<div class="bb-portfolio-stats">
+
+<div class="bb-portfolio-stat"><span class="bb-portfolio-stat-label">1W Perf</span><span class="bb-portfolio-stat-value {% if perf_1w_is_positive %}pos{% else %}neg{% endif %}">{% if perf_1w_is_positive %}+{% endif %}{{ perf_1w }}%</span></div>
+
+<div class="bb-portfolio-stat"><span class="bb-portfolio-stat-label">1M Perf</span><span class="bb-portfolio-stat-value {% if perf_1m_is_positive %}pos{% else %}neg{% endif %}">{% if perf_1m_is_positive %}+{% endif %}{{ perf_1m }}%</span></div>
+
+<div class="bb-portfolio-stat"><span class="bb-portfolio-stat-label">Total Perf</span><span class="bb-portfolio-stat-value {% if total_perf_is_positive %}pos{% else %}neg{% endif %}">{% if total_perf_is_positive %}+{% endif %}{{ total_perf }}%</span></div>
+
+<div class="bb-portfolio-stat"><span class="bb-portfolio-stat-label">NAV High</span><span class="bb-portfolio-stat-value">{{ nav_high }}</span></div>
+
+<div class="bb-portfolio-stat"><span class="bb-portfolio-stat-label">NAV Low</span><span class="bb-portfolio-stat-value">{{ nav_low }}</span></div>
+
+<div class="bb-portfolio-stat"><span class="bb-portfolio-stat-label">Days Tracked</span><span class="bb-portfolio-stat-value">{{ nav_days }}</span></div>
+
+</div>
+
+</div>
+
+<!-- BENCHMARK COMPARISON CHART -->
+<div class="bb-benchmark-panel">
+<div class="bb-benchmark-header">
+<div class="bb-benchmark-title">
+<span class="bb-benchmark-icon">📊</span>
+<span>BENCHMARK COMPARISON</span>
+</div>
+<div class="bb-benchmark-controls">
+<div class="bb-benchmark-select">
+<button class="bb-bench-btn active" onclick="setBenchmark('CACMS')" id="bench-CACMS">CAC M&S</button>
+<button class="bb-bench-btn" onclick="setBenchmark('CACS')" id="bench-CACS">CAC Small</button>
+<button class="bb-bench-btn" onclick="setBenchmark('STOXX50E')" id="bench-STOXX50E">Euro Stoxx</button>
+</div>
+<div class="bb-benchmark-period">
+<button onclick="setBenchPeriod('YTD')" id="bench-ytd">YTD</button>
+<button onclick="setBenchPeriod('1Y')" id="bench-1y" class="active">1Y</button>
+<button onclick="setBenchPeriod('3Y')" id="bench-3y">3Y</button>
+<button onclick="setBenchPeriod('MAX')" id="bench-max">MAX</button>
+</div>
+</div>
+</div>
+<div class="bb-benchmark-alpha" id="benchmark-alpha">
+<span class="bb-alpha-label">ALPHA (vs benchmark)</span>
+<span class="bb-alpha-value" id="alpha-value">--</span>
+</div>
+<div class="bb-benchmark-chart">
+<canvas id="benchmarkChart"></canvas>
+</div>
+<div class="bb-benchmark-metrics" id="benchmark-metrics">
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Portfolio</span><span class="bb-bench-metric-value" id="metric-portfolio">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Benchmark</span><span class="bb-bench-metric-value" id="metric-benchmark">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Beta</span><span class="bb-bench-metric-value" id="metric-beta">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Sharpe</span><span class="bb-bench-metric-value" id="metric-sharpe">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Max DD</span><span class="bb-bench-metric-value" id="metric-maxdd">--</span></div>
+<div class="bb-bench-metric"><span class="bb-bench-metric-label">Tracking Err</span><span class="bb-bench-metric-value" id="metric-tracking">--</span></div>
+</div>
+</div>
+
+{% raw %}{% endraw %}
+
+<!-- DIVIDENDS PANEL -->
+<div class="bb-dividends-panel">
+<div class="bb-dividends-header">
+<div class="bb-dividends-title">
+<span class="bb-dividends-icon">💰</span>
+<span>DIVIDENDS CALENDAR</span>
+</div>
+<div class="bb-dividends-controls">
+<button class="bb-div-period active" onclick="setDivPeriod(3)" id="div-3m">3M</button>
+<button class="bb-div-period" onclick="setDivPeriod(6)" id="div-6m">6M</button>
+<button class="bb-div-period" onclick="setDivPeriod(12)" id="div-12m">12M</button>
+</div>
+</div>
+<div class="bb-dividends-summary" id="dividends-summary">
+<div class="bb-div-total">
+<span class="bb-div-total-label">Projected Annual Income</span>
+<span class="bb-div-total-value" id="div-annual-income">--</span>
+</div>
+<div class="bb-div-stats">
+<div class="bb-div-stat"><span class="bb-div-stat-label">Monthly Avg</span><span class="bb-div-stat-value" id="div-monthly">--</span></div>
+<div class="bb-div-stat"><span class="bb-div-stat-label">Yield</span><span class="bb-div-stat-value" id="div-yield">--</span></div>
+<div class="bb-div-stat"><span class="bb-div-stat-label">Payers</span><span class="bb-div-stat-value" id="div-payers">--</span></div>
+</div>
+</div>
+<div class="bb-dividends-upcoming" id="dividends-upcoming">
+<div class="bb-div-section-title">Upcoming Ex-Dates (Next 90 days)</div>
+<div class="bb-div-list" id="div-upcoming-list">
+<div class="bb-div-loading">Loading dividend data...</div>
+</div>
+</div>
+<div class="bb-dividends-breakdown" id="dividends-breakdown">
+<div class="bb-div-section-title">Top Dividend Contributors</div>
+<div class="bb-div-breakdown-list" id="div-breakdown-list"></div>
+</div>
+</div>
+
+{% raw %}{% endraw %}
+
+<div class="bb-panel">
+
+<div class="bb-panel-hdr"><span class="bb-panel-title">Holdings</span><span class="bb-panel-sub">Click column header to sort</span><div style="margin-left:auto;display:flex;gap:8px;"><button class="bb-btn bb-btn-trade" onclick="openTradeModal()" style="padding:4px 12px;font-size:11px;background:#ff9500;border-color:#ff9500;color:#000;font-weight:600;">⚡ TRADE</button><button class="bb-btn bb-btn-g" onclick="openAddModal()" style="padding:4px 12px;font-size:11px;">+ ADD</button></div></div>
+
+<div class="bb-tbl"><table id="holdings-table">
+
+<thead><tr>
+
+<th class="col-ticker sortable" data-col="0" data-type="string">Ticker</th>
+
+<th class="col-name sortable" data-col="1" data-type="string">Name</th>
+
+<th class="col-qty sortable" style="text-align:right" data-col="2" data-type="number">Qty</th>
+
+<th class="col-last sortable" style="text-align:right" data-col="3" data-type="number">Last</th>
+
+<th class="col-mktval sortable" style="text-align:right" data-col="4" data-type="number">Mkt Val</th>
+
+<th class="col-weight sortable" style="text-align:right" data-col="5" data-type="number">Weight</th>
+
+<th class="col-chg sortable" style="text-align:right" data-col="6" data-type="number">%Chg</th>
+
+<th class="col-pe sortable" style="text-align:right" data-col="7" data-type="number">P/E</th>
+
+<th class="col-pcf sortable" style="text-align:right" data-col="8" data-type="number">P/CF</th>
+
+<th class="col-roe sortable" style="text-align:right" data-col="9" data-type="number">ROE</th>
+
+<th class="col-signal sortable" style="text-align:center" data-col="10" data-type="string">Signal</th>
+
+<th class="col-actions" style="text-align:center;width:80px">Actions</th>
+
+</tr></thead>
+
+<tbody id="holdings-body">
+{% for p in positions %}
+<tr>
+<td class="col-ticker"><a class="tk" href="/detail?{{ p.ticker }}">{{ p.ticker }}</a></td>
+<td class="col-name nm">{{ p.name }}</td>
+<td class="col-qty r">{{ p.qty }}</td>
+<td class="col-last r">{{ p.price_str }}</td>
+<td class="col-mktval r">{{ p.val_str }}</td>
+<td class="col-weight r wgt">{{ p.poids_str }}</td>
+<td class="col-chg r {{ p.chg_class }}">{{ p.chg_str }}</td>
+<td class="col-pe r" style="color:{{ p.pe_color }};font-weight:{{ p.pe_weight }}">{{ p.pe_str }}</td>
+<td class="col-pcf r" style="color:{{ p.pcf_color }};font-weight:{{ p.pcf_weight }}">{{ p.pcf_str }}</td>
+<td class="col-roe r" style="color:{{ p.roe_color }}">{{ p.roe_str }}</td>
+<td class="col-signal c"><span class="sig {{ p.sig_class }}">{{ p.sig }}</span></td>
+<td class="col-actions c"><button class="btn-buy" onclick="openTradeModal('{{ p.ticker }}', '{{ p.name }}', 'BUY')" title="Buy more">+</button><button class="btn-sell" onclick="openTradeModal('{{ p.ticker }}', '{{ p.name }}', 'SELL', {{ p.qty_raw }})" title="Sell">-</button><button class="btn-edit" onclick="editPosition('{{ p.ticker }}', '{{ p.name }}', {{ p.qty_raw }}, {{ p.cost_raw }})" title="Edit">&#9999;&#65039;</button></td>
+</tr>
+{% endfor %}
+</tbody>
+
+</table></div>
+
+</div>
+
+<!-- Closed Positions Section (Collapsible) -->
+<div class="bb-closed-positions" id="closed-positions-section">
+<div class="bb-closed-header" onclick="toggleClosedPositions()">
+<span class="bb-closed-icon">📊</span>
+<span class="bb-closed-title">CLOSED POSITIONS</span>
+<span class="bb-closed-count" id="closed-count">0</span>
+<span class="bb-closed-pnl" id="closed-total-pnl">€0</span>
+<span class="bb-closed-toggle" id="closed-toggle">▼</span>
+</div>
+<div class="bb-closed-content" id="closed-content" style="display:none;">
+<div class="bb-tbl"><table id="closed-table">
+<thead><tr>
+<th>Ticker</th>
+<th>Name</th>
+<th style="text-align:right">Total Invested</th>
+<th style="text-align:right">Total Sold</th>
+<th style="text-align:right">Realized P&L</th>
+<th style="text-align:right">P&L %</th>
+<th style="text-align:right">Holding Days</th>
+<th>Date Closed</th>
+</tr></thead>
+<tbody id="closed-body">
+<tr><td colspan="8" style="text-align:center;padding:20px;color:#666;">Loading closed positions...</td></tr>
+</tbody>
+</table></div>
+</div>
+</div>
+
+{% raw %}{% endraw %}
+
+<script src="/static/js/dashboard-closed.js"></script>
+
+</div>
+
+<div id="t1" class="tc">
+
+<div class="bb-scr-hdr">
+
+<div class="bb-scr-stats">
+
+<div class="bb-scr-stat"><span>Universe</span><b style="color:#fff">{{ screener_count }}</b></div>
+
+<div class="bb-scr-stat"><span>Opportunities</span><b>{{ opps }}</b></div>
+
+<div class="bb-scr-stat"><span>Source</span><b style="color:#00bfff">{% if eod_available %}EOD{% else %}Yahoo{% endif %}</b></div>
+
+</div>
+
+<div class="bb-scr-actions">
+
+<select id="screener-scope" class="bb-scope-select">
+
+<option value="france">[FR] France</option>
+
+<option value="europe">[EU] Europe</option>
+
+<option value="legacy">🔍‹ Legacy (52)</option>
+
+</select>
+
+<select id="screener-mode" class="bb-scope-select">
+
+<option value="standard">📊 Standard</option>
+
+<option value="ai_optimal">🤖 AI Optimal (PE<=8, ROE>=12%, Top 18)</option>
+
+</select>
+
+<button class="bb-btn bb-btn-g" onclick="runScreenerScan()">RUN SCAN</button>
+
+</div>
+
+</div>
+
+<div class="bb-ai-criteria" id="ai-criteria-banner" style="display:none">
+
+<span>🤖 <b>AI OPTIMAL MODE</b></span>
+
+<span class="bb-ai-crit">PE <= 8</span>
+
+<span class="bb-ai-crit">ROE >= 12%</span>
+
+<span class="bb-ai-crit">Debt/Equity <= 50%</span>
+
+<span class="bb-ai-crit">Top 18 positions</span>
+
+</div>
+
+<div class="bb-filters"><div class="bb-filter"><label>Country</label><select id="fC" onchange="flt()"><option value="">ALL</option><option value="FR">France</option><option value="IT">Italie</option><option value="ES">Espagne</option><option value="DE">Allemagne</option><option value="UK">UK</option><option value="BE">Belgique</option><option value="NL">Netherlands</option><option value="GR">Grece</option></select></div><div class="bb-filter"><label>Max P/E</label><input type="number" id="fP" value="15" style="width:50px" onchange="flt()"></div><div class="bb-filter"><label>Signal</label><select id="fS" onchange="flt()"><option value="">ALL</option><option value="ACHAT">BUY</option><option value="AI BUY">AI BUY</option><option value="WATCH">WATCH</option></select></div></div>
+
+<div class="bb-panel" style="margin-top:0;border-top:0"><div class="bb-tbl" style="max-height:480px"><table><thead><tr><th>#</th><th>Ticker</th><th>Name</th><th>Country</th><th>Sector</th><th style="text-align:right">P/E</th><th style="text-align:right">ROE</th><th style="text-align:right">Debt%</th><th style="text-align:right">Score</th><th style="text-align:center">Signal</th><th>Action</th></tr></thead><tbody id="stbl"></tbody></table></div></div>
+
+</div>
+
+<div id="t2" class="tc"><div class="bb-panel"><div class="bb-panel-hdr"><span class="bb-panel-title">Watchlist</span><span class="bb-panel-sub">{{ watchlist_count }} securities</span></div><div class="bb-tbl"><table><thead><tr><th>Ticker</th><th>Name</th><th>Country</th><th>Sector</th><th>Added</th><th>Remove</th></tr></thead><tbody>
+{% for w in watchlist %}
+<tr><td><a class="tk" href="/detail?{{ w.ticker }}">{{ w.ticker }}</a></td><td class="nm">{{ w.name }}</td><td>{{ w.country }}</td><td>{{ w.sector }}</td><td>{{ w.added }}</td><td><button class="bb-btn bb-btn-r" onclick="rmW('{{ w.ticker }}')">DEL</button></td></tr>
+{% else %}
+<tr><td colspan="6" style="text-align:center;padding:40px;color:#666">No securities in watchlist</td></tr>
+{% endfor %}
+</tbody></table></div></div></div>
+
+<div id="t3" class="tc">
+
+<div class="bb-backtest">
+
+<div class="bb-backtest-header">
+
+<div class="bb-backtest-title">
+
+<h2>🔬 STRATEGY BACKTESTER</h2>
+
+<p>Test your value investing strategy on historical data (powered by EOD Historical Data)</p>
+
+</div>
+
+<div class="bb-backtest-status">{'<span class="bb-api-ok">âœ“ EOD API Connected</span>' if EOD_OK else '<span class="bb-api-warn">âš¡ Offline Mode (using cached data)</span>'}</div>
+
+</div>
+
+
+
+<div class="bb-cache-panel">
+
+<div class="bb-cache-info">
+
+<span class="bb-cache-icon">💾</span>
+
+<div class="bb-cache-stats" id="cache-stats">Loading cache stats...</div>
+
+</div>
+
+<div class="bb-cache-actions">
+
+<button class="bb-btn" onclick="downloadAllData('france')" id="dl-france-btn">📥 Download France Data</button>
+
+<button class="bb-btn" onclick="downloadAllData('europe')" id="dl-europe-btn">📥 Download Europe Data</button>
+
+<button class="bb-btn bb-btn-r" onclick="clearCache()">Clear Cache</button>
+
+</div>
+
+</div>
+
+
+
+<div class="bb-backtest-config">
+
+<div class="bb-backtest-section">
+
+<h3>🔍… Time Period</h3>
+
+<div class="bb-backtest-row">
+
+<div class="bb-backtest-field">
+
+<label>Start Date</label>
+
+<input type="date" id="bt-start" value="2014-01-01">
+
+</div>
+
+<div class="bb-backtest-field">
+
+<label>End Date</label>
+
+<input type="date" id="bt-end" value="{{ datetime_formatted }}">
+
+</div>
+
+<div class="bb-backtest-field">
+
+<label>Rebalancing</label>
+
+<select id="bt-rebalance">
+
+<option value="monthly">Monthly</option>
+
+<option value="quarterly" selected>Quarterly</option>
+
+<option value="semi-annual">Semi-Annual</option>
+
+<option value="yearly">Yearly</option>
+
+</select>
+
+</div>
+
+</div>
+
+</div>
+
+
+
+<div class="bb-backtest-section">
+
+<h3>📊 Strategy Parameters (Higgons-Style)</h3>
+
+<div class="bb-backtest-row">
+
+<div class="bb-backtest-field">
+
+<label>Max P/E Ratio (BUY)</label>
+
+<input type="number" id="bt-pe-max" value="12" min="1" max="50">
+
+</div>
+
+<div class="bb-backtest-field">
+
+<label>Min ROE % (BUY)</label>
+
+<input type="number" id="bt-roe-min" value="10" min="0" max="100">
+
+</div>
+
+<div class="bb-backtest-field">
+
+<label>Max Debt/Equity %</label>
+
+<input type="number" id="bt-debt-max" value="100" min="0" max="500">
+
+</div>
+
+<div class="bb-backtest-field">
+
+<label>Max Positions</label>
+
+<input type="number" id="bt-max-pos" value="20" min="1" max="50">
+
+</div>
+
+</div>
+
+<div class="bb-backtest-row" style="margin-top:12px">
+
+<div class="bb-backtest-field">
+
+<label>PE Sell Threshold</label>
+
+<input type="number" id="bt-pe-sell" value="17" min="10" max="50">
+
+<span style="color:#666;font-size:9px">Sell if PE rises above this</span>
+
+</div>
+
+<div class="bb-backtest-field">
+
+<label>Min ROE % (HOLD)</label>
+
+<input type="number" id="bt-roe-hold" value="8" min="0" max="50">
+
+<span style="color:#666;font-size:9px">Sell if ROE drops below this</span>
+
+</div>
+
+</div>
+
+</div>
+
+
+
+<div class="bb-backtest-section">
+
+<h3>💰 Capital & Benchmark</h3>
+
+<div class="bb-backtest-row">
+
+<div class="bb-backtest-field">
+
+<label>Initial Capital (â‚¬)</label>
+
+<input type="number" id="bt-capital" value="100000" min="1000" step="1000">
+
+</div>
+
+<div class="bb-backtest-field">
+
+<label>Benchmark</label>
+
+<select id="bt-benchmark">
+
+<option value="^FCHI">CAC 40</option>
+
+<option value="^STOXX50E">Euro Stoxx 50</option>
+
+<option value="^STOXX">Stoxx 600</option>
+
+<option value="^GDAXI">DAX</option>
+
+</select>
+
+</div>
+
+</div>
+
+</div>
+
+
+
+<div class="bb-backtest-section">
+
+<h3>🌍 Universe Selection</h3>
+
+<div class="bb-backtest-row">
+
+<div class="bb-backtest-field">
+
+<label>Market Scope</label>
+
+<div class="bb-scope-toggle">
+
+<button type="button" class="bb-scope-btn active" id="scope-france" onclick="setScope('france')">[FR] France</button>
+
+<button type="button" class="bb-scope-btn" id="scope-europe" onclick="setScope('europe')">[EU] Europe</button>
+
+<button type="button" class="bb-scope-btn" id="scope-custom" onclick="setScope('custom')">âœï¸ Custom</button>
+
+</div>
+
+<input type="hidden" id="bt-scope" value="france">
+
+</div>
+
+</div>
+
+<div class="bb-backtest-field" style="width:100%;margin-top:12px" id="custom-universe-field" style="display:none">
+
+<label>Custom tickers (comma separated) - Leave empty to scan entire market</label>
+
+<textarea id="bt-universe" rows="2" placeholder="Leave empty to scan all stocks in selected market, or enter specific tickers: STF.PA, CARM.PA, GTT.PA..."></textarea>
+
+</div>
+
+<div class="bb-scope-info" id="scope-info">
+
+<span style="color:#00ff00">[FR] France:</span> Will scan ~200 small/mid cap stocks on Euronext Paris
+
+</div>
+
+</div>
+
+
+
+<div class="bb-backtest-actions">
+
+<button class="bb-btn bb-btn-lg bb-btn-run" onclick="runBacktest()" id="bt-run-btn">
+
+<span>â–¶ RUN BACKTEST</span>
+
+</button>
+
+<button class="bb-btn bb-btn-lg" onclick="resetBacktest()">â†º RESET</button>
+
+<div class="bb-action-separator"></div>
+
+<button class="bb-btn bb-btn-lg bb-btn-ai" onclick="runAIOptimize()" id="ai-opt-btn" {% if not anthropic_ok %}disabled{% endif %}>
+
+<span>🤖 AI OPTIMIZE</span>
+
+</button>
+
+<select id="ai-opt-goal" class="bb-opt-goal">
+
+<option value="balanced">Balanced (Risk/Return)</option>
+
+<option value="max_return">Max Return</option>
+
+<option value="max_sharpe">Max Sharpe Ratio</option>
+
+<option value="min_drawdown">Min Drawdown</option>
+
+</select>
+
+</div>
+
+</div>
+
+
+
+<div class="bb-ai-results" id="ai-results" style="display:none">
+
+<div class="bb-ai-results-header">
+
+<h3>🤖 AI OPTIMIZATION RESULTS</h3>
+
+<span class="bb-ai-confidence" id="ai-confidence"></span>
+
+</div>
+
+
+
+<div class="bb-ai-optimal">
+
+<h4>âœ¨ Optimal Parameters Found</h4>
+
+<div class="bb-ai-params" id="ai-optimal-params"></div>
+
+<div class="bb-ai-expected" id="ai-expected-metrics"></div>
+
+</div>
+
+
+
+<div class="bb-ai-analysis">
+
+<h4>📊 AI Analysis</h4>
+
+<div class="bb-ai-analysis-text" id="ai-analysis-text"></div>
+
+</div>
+
+
+
+<div class="bb-ai-explanation">
+
+<h4>💡 Explanation</h4>
+
+<div id="ai-explanation-text"></div>
+
+</div>
+
+
+
+<div class="bb-ai-warnings" id="ai-warnings-section">
+
+<h4>âš ï¸ Warnings & Limitations</h4>
+
+<ul id="ai-warnings-list"></ul>
+
+</div>
+
+
+
+<div class="bb-ai-grid-results">
+
+<h4>🔍‹ Grid Search Results (14 tests)</h4>
+
+<div class="bb-tbl" style="max-height:200px">
+
+<table id="ai-grid-table">
+
+<thead><tr><th>PE<=</th><th>ROE>=</th><th>Debt<=</th><th>Pos</th><th>Return</th><th>CAGR</th><th>Sharpe</th><th>MaxDD</th></tr></thead>
+
+<tbody id="ai-grid-body"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+
+<button class="bb-btn bb-btn-lg bb-btn-run" onclick="applyOptimalParams()" style="margin-top:16px">
+
+<span>âœ… APPLY OPTIMAL & RUN BACKTEST</span>
+
+</button>
+
+</div>
+
+
+
+<div class="bb-backtest-results" id="bt-results" style="display:none">
+
+<div class="bb-backtest-results-header">
+
+<h3>📈 BACKTEST RESULTS</h3>
+
+<div class="bb-backtest-period" id="bt-period-display"></div>
+
+</div>
+
+
+
+<div class="bb-backtest-metrics" id="bt-metrics">
+
+<!-- Filled by JS -->
+
+</div>
+
+
+
+<div class="bb-backtest-chart-container">
+
+<h4>📈 P&L Evolution (based on initial capital)</h4>
+
+<div class="bb-backtest-chart"><canvas id="btChart"></canvas></div>
+
+<div class="bb-backtest-legend">
+
+<span class="bt-legend-item"><span class="bt-legend-color" style="background:#00ff00"></span> Strategy P&L</span>
+
+<span class="bt-legend-item"><span class="bt-legend-color" style="background:#ff9500"></span> Benchmark P&L (if same capital)</span>
+
+<span class="bt-legend-item"><span class="bt-legend-color" style="background:#333;height:1px;border-top:2px dashed #666"></span> Breakeven</span>
+
+</div>
+
+</div>
+
+
+
+<div class="bb-backtest-yearly" id="bt-yearly">
+
+<h4>📊 Yearly Returns</h4>
+
+<div class="bb-yearly-chart"><canvas id="btYearlyChart"></canvas></div>
+
+</div>
+
+
+
+<div class="bb-backtest-trades" id="bt-trades">
+
+<h4>🔍‹ Trade History</h4>
+
+<div class="bb-tbl" style="max-height:300px"><table id="bt-trades-table">
+
+<thead><tr><th>Date</th><th>Action</th><th>Ticker</th><th>Shares</th><th>Price</th><th>Value</th><th>P&L %</th></tr></thead>
+
+<tbody id="bt-trades-body"></tbody>
+
+</table></div>
+
+</div>
+
+
+
+<div class="bb-backtest-errors" id="bt-errors" style="display:none">
+
+<h4>âš ï¸ Warnings & Errors</h4>
+
+<ul id="bt-errors-list"></ul>
+
+</div>
+
+
+
+<div class="bb-backtest-history" id="bt-history">
+
+<h4>
+
+<span>🔍š Saved Backtests</span>
+
+<button class="bb-btn" onclick="loadBacktestHistory()" style="padding:4px 8px;font-size:9px">â†» Refresh</button>
+
+</h4>
+
+<div class="bb-history-compare">
+
+<label style="color:#888;font-size:10px">Select backtests to compare:</label>
+
+<button class="bb-btn" onclick="compareSelected()" id="compare-btn" disabled>📊 Compare Selected</button>
+
+</div>
+
+<div class="bb-tbl" style="max-height:400px">
+
+<table class="bb-history-table">
+
+<thead>
+
+<tr>
+
+<th style="width:25px"><input type="checkbox" id="select-all-bt" onchange="toggleSelectAll()"></th>
+
+<th>Name</th>
+
+<th>Scope</th>
+
+<th>Period</th>
+
+<th>Rebal</th>
+
+<th title="PE Max Buy / PE Sell">PE B/S</th>
+
+<th title="ROE Min Buy / ROE Min Hold">ROE B/H</th>
+
+<th>Pos</th>
+
+<th>Return</th>
+
+<th>CAGR</th>
+
+<th>Sharpe</th>
+
+<th>MaxDD</th>
+
+<th>Win%</th>
+
+<th style="width:60px">Actions</th>
+
+</tr>
+
+</thead>
+
+<tbody id="bt-history-body">
+
+<tr><td colspan="14" style="text-align:center;color:#666;padding:20px">Loading...</td></tr>
+
+</tbody>
+
+</table>
+
+</div>
+
+<div class="bb-compare-chart" id="compare-chart" style="display:none">
+
+<h5>📊 Comparison Chart</h5>
+
+<canvas id="compareChart" height="200"></canvas>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="bb-status"><div class="bb-status-l">BLOOMBERG LP | EUR Small/Mid Cap Europe</div><div class="bb-status-r">Connected <span class="blink">●</span></div></div>
+
 <script>
-    // Dashboard-specific JavaScript
+// ═══ DATA INJECTION (Jinja2 processed) ═══
+var _D = {
+    activeCount: {{ active_count }},
+    tvFormatted: "{{ tv_formatted }}",
+    navData: {{ nav_history_json|safe }},
+    screener: {{ screener_json|safe }},
+    watchlistTickers: {{ watchlist_tickers_json|safe }}
+};
 </script>
+<script src="/static/js/dashboard.js"></script>
+<!-- Portfolio Modal -->
+<div id="pf-modal" class="pf-modal-overlay" onclick="if(event.target===this)closeModal()">
+<div class="pf-modal">
+<h3 id="modal-title">Add Position</h3>
+<div class="pf-modal-row"><label>Ticker</label><input type="text" id="pf-ticker" placeholder="e.g. AAPL.PA"></div>
+<div class="pf-modal-row"><label>Name</label><input type="text" id="pf-name" placeholder="Company name"></div>
+<div class="pf-modal-row"><label>Quantity</label><input type="number" id="pf-qty" placeholder="Number of shares" step="0.01"></div>
+<div class="pf-modal-row"><label>Average Cost (EUR)</label><input type="number" id="pf-cost" placeholder="PRU / unit cost" step="0.01"></div>
+<div class="pf-modal-btns">
+<button class="btn-cancel" onclick="closeModal()">Cancel</button>
+<button class="btn-save" onclick="savePosition()">Save</button>
+</div>
+</div>
+</div>
+
+<!-- Trade Modal -->
+<div id="trade-modal" class="pf-modal-overlay" onclick="if(event.target===this)closeTradeModal()">
+<div class="pf-modal trade-modal">
+<h3 id="trade-modal-title">NEW TRADE</h3>
+<div class="trade-type-toggle">
+<button class="trade-type-btn buy active" id="trade-type-buy" onclick="setTradeType('BUY')">BUY</button>
+<button class="trade-type-btn sell" id="trade-type-sell" onclick="setTradeType('SELL')">SELL</button>
+</div>
+<div class="pf-modal-row"><label>Ticker</label><input type="text" id="trade-ticker" placeholder="e.g. MC.PA" style="text-transform:uppercase;"></div>
+<div class="pf-modal-row"><label>Quantity</label><input type="number" id="trade-qty" placeholder="Number of shares" step="0.01"><span class="trade-max-qty" id="trade-max-qty" style="display:none;" onclick="fillMaxQty()">MAX: <span id="max-qty-val">0</span></span></div>
+<div class="pf-modal-row"><label>Price (EUR)</label><input type="number" id="trade-price" placeholder="Price per share" step="0.01"></div>
+<div class="pf-modal-row"><label>Date</label><input type="date" id="trade-date"></div>
+<div class="pf-modal-row"><label>Fees (EUR)</label><input type="number" id="trade-fees" placeholder="0.00" step="0.01" value="0"></div>
+<div class="pf-modal-row"><label>Notes</label><input type="text" id="trade-notes" placeholder="Optional notes"></div>
+<div class="trade-summary" id="trade-summary" style="display:none;">
+<span id="trade-summary-text"></span>
+</div>
+<div class="pf-modal-btns">
+<button class="btn-cancel" onclick="closeTradeModal()">Cancel</button>
+<button class="btn-save trade-confirm" id="trade-confirm-btn" onclick="confirmTrade()">CONFIRM TRADE</button>
+</div>
+</div>
+</div>
+
+{% raw %}{% endraw %}
+
+<script src="/static/js/dashboard-trade.js"></script>
 {% endblock %}

@@ -180,7 +180,10 @@ class DividendsService:
             )
 
             if err:
-                log.error(f"Error fetching dividends for {ticker}: {err}")
+                if 'not configured' in str(err):
+                    log.debug(f"Dividends skipped for {ticker}: {err}")
+                else:
+                    log.error(f"Error fetching dividends for {ticker}: {err}")
                 return None
 
             if not dividends:
