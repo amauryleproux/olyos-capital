@@ -26,7 +26,7 @@ log = get_logger('benchmark')
 # Benchmark definitions
 BENCHMARKS = {
     'CAC40': {
-        'ticker': 'CAC.INDX',
+        'ticker': 'FCHI.INDX',
         'name': 'CAC 40',
         'color': '#0066cc',
         'yahoo': '^FCHI'
@@ -35,13 +35,13 @@ BENCHMARKS = {
         'ticker': 'CACMS.INDX',
         'name': 'CAC Mid & Small',
         'color': '#9933ff',
-        'yahoo': '^CACMS'
+        'yahoo': 'RS2K.PA'  # Proxy: Amundi Russell 2000 ETF on Euronext
     },
     'CACS': {
         'ticker': 'CACS.INDX',
         'name': 'CAC Small',
         'color': '#00cc66',
-        'yahoo': None
+        'yahoo': 'RS2K.PA'  # Best available small cap proxy
     },
     'STOXX50E': {
         'ticker': 'STOXX50E.INDX',
@@ -50,10 +50,10 @@ BENCHMARKS = {
         'yahoo': '^STOXX50E'
     },
     'MSCIESM': {
-        'ticker': 'MSCIESM.INDX',
-        'name': 'MSCI Europe Small',
+        'ticker': 'SX5E.INDX',
+        'name': 'Stoxx Europe 50',
         'color': '#cc0066',
-        'yahoo': None
+        'yahoo': '^STOXX50E'
     }
 }
 
@@ -178,16 +178,30 @@ class BenchmarkService:
             except Exception as e:
                 log.warning(f"Cache read error: {e}")
 
-        # Fetch from API
-        if not self.get_prices:
-            return [], "No price fetch function configured"
+        # Fetch from API (EOD first, then yfinance fallback)
+        prices = None
+        err = None
 
-        log.info(f"Fetching benchmark {benchmark_key} from API...")
-        prices, err = self.get_prices(ticker, start_date, end_date, use_cache=True)
+        if self.get_prices:
+            log.info(f"Fetching benchmark {benchmark_key} from EOD API...")
+            prices, err = self.get_prices(ticker, start_date, end_date, use_cache=True)
+            if err:
+                log.warning(f"EOD API failed for {benchmark_key}: {err}")
 
-        if err or not prices:
-            log.error(f"Error fetching benchmark {benchmark_key}: {err}")
-            return [], err or "No data returned"
+        # Fallback to yfinance if EOD fails or is not configured
+        if not prices:
+            yahoo_ticker = benchmark.get('yahoo')
+            if yahoo_ticker:
+                log.info(f"Trying yfinance fallback for {benchmark_key} ({yahoo_ticker})...")
+                prices, yf_err = self._fetch_yfinance(yahoo_ticker, start_date, end_date)
+                if yf_err:
+                    log.warning(f"yfinance fallback also failed: {yf_err}")
+                elif prices:
+                    log.info(f"yfinance fallback succeeded: {len(prices)} data points")
+                    err = None  # Clear EOD error
+
+        if not prices:
+            return [], err or "No data returned from EOD or yfinance"
 
         # Save to cache
         try:
@@ -207,6 +221,33 @@ class BenchmarkService:
             prices = self._normalize_series(prices)
 
         return prices, None
+
+    def _fetch_yfinance(self, yahoo_ticker: str, start_date: str, end_date: str) -> Tuple[List[Dict], Optional[str]]:
+        """Fallback: fetch benchmark data from yfinance."""
+        try:
+            import yfinance as yf
+        except ImportError:
+            return [], "yfinance not installed"
+
+        try:
+            ticker_obj = yf.Ticker(yahoo_ticker)
+            df = ticker_obj.history(start=start_date, end=end_date)
+            if df.empty:
+                return [], f"No data from yfinance for {yahoo_ticker}"
+
+            prices = []
+            for date, row in df.iterrows():
+                prices.append({
+                    'date': date.strftime('%Y-%m-%d'),
+                    'close': round(float(row['Close']), 4),
+                    'open': round(float(row['Open']), 4),
+                    'high': round(float(row['High']), 4),
+                    'low': round(float(row['Low']), 4),
+                    'volume': int(row['Volume']),
+                })
+            return prices, None
+        except Exception as e:
+            return [], f"yfinance error: {e}"
 
     def _normalize_series(self, prices: List[Dict], base: float = 100.0) -> List[Dict]:
         """Normalize price series to base 100 at start"""
@@ -322,30 +363,46 @@ class BenchmarkService:
             log.warning(f"Not enough benchmark data: {err}")
             return metrics
 
-        # Align dates (use benchmark dates as reference)
+        # Align dates: for each portfolio date, find closest benchmark date
         portfolio_by_date = {n['date']: n['close'] for n in nav_data}
         benchmark_by_date = {b['date']: b['close'] for b in benchmark_data}
+        benchmark_dates_sorted = sorted(benchmark_by_date.keys())
 
-        # Find common dates
-        common_dates = sorted(set(portfolio_by_date.keys()) & set(benchmark_by_date.keys()))
-        if len(common_dates) < 10:
-            log.warning("Not enough common dates for metrics")
+        # For each portfolio date, use exact match or nearest previous benchmark date
+        portfolio_dates = sorted(portfolio_by_date.keys())
+        aligned_portfolio = []
+        aligned_benchmark = []
+        for pd in portfolio_dates:
+            pval = portfolio_by_date[pd]
+            # Exact match first
+            if pd in benchmark_by_date:
+                aligned_portfolio.append(pval)
+                aligned_benchmark.append(benchmark_by_date[pd])
+            else:
+                # Find nearest previous benchmark date
+                prev = [d for d in benchmark_dates_sorted if d <= pd]
+                if prev:
+                    aligned_portfolio.append(pval)
+                    aligned_benchmark.append(benchmark_by_date[prev[-1]])
+
+        if len(aligned_portfolio) < 2:
+            log.warning("Not enough aligned data points for metrics")
             return metrics
 
-        # Build aligned series
-        portfolio_series = [portfolio_by_date[d] for d in common_dates]
-        benchmark_series = [benchmark_by_date[d] for d in common_dates]
+        portfolio_series = aligned_portfolio
+        benchmark_series = aligned_benchmark
 
         # Calculate returns
         metrics.portfolio_return = (portfolio_series[-1] / portfolio_series[0] - 1) * 100
         metrics.benchmark_return = (benchmark_series[-1] / benchmark_series[0] - 1) * 100
         metrics.alpha = metrics.portfolio_return - metrics.benchmark_return
 
-        # Calculate daily returns for risk metrics
+        # Calculate daily returns for risk metrics (need at least 2 returns)
         portfolio_returns = self._calculate_returns(portfolio_series)
         benchmark_returns = self._calculate_returns(benchmark_series)
 
-        if len(portfolio_returns) < 10:
+        if len(portfolio_returns) < 2:
+            log.info(f"Only {len(portfolio_returns)} return(s), skipping risk metrics")
             return metrics
 
         # Volatility (annualized)

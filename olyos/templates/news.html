@@ -182,7 +182,6 @@ body{font-family:'JetBrains Mono',Consolas,'Courier New',monospace;background:va
       <a href="/">PORTFOLIO</a>
       <a href="/screener">SCREENER</a>
       <a href="/news" class="active">NEWS</a>
-      <a href="/agent">AGENT</a>
     </div>
     <span class="hdr-time" id="clock"></span>
     <a class="hdr-back" href="/">◄ TERMINAL</a>
@@ -450,7 +449,7 @@ function renderArticles() {
     const pfClass = a.is_portfolio ? ' has-portfolio' : (a.is_watchlist ? ' has-watchlist' : '');
     const tickersHtml = (a.tickers || []).map(t => {
       const cls = a.is_portfolio ? 'pf' : (a.is_watchlist ? 'wl' : '');
-      return `<span class="article-ticker ${cls}" onclick="location.href='/?detail=${t}'">${t.replace(/\.(PA|DE|MI|MC|AS|BR)$/, '')}</span>`;
+      return `<span class="article-ticker ${cls}" onclick="location.href='/detail?${t}'">${t.replace(/\.(PA|DE|MI|MC|AS|BR)$/, '')}</span>`;
     }).join('');
 
     html += `<div class="article${pfClass}">
