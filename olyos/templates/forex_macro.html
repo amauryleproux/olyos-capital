@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Olyos Capital — Forex Macro</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2308081a'/><circle cx='16' cy='16' r='4' fill='%23c9a84c'/></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-0:#04040a;--bg-1:#08080e;--bg-2:#0a0a12;--bg-3:#0d0d14;--bg-4:#111118;
+  --border:#1a1a2e;--border-2:#2a2a3e;
+  --amber:#ff9500;--amber-dim:#cc7700;--green:#00ff88;--green-dim:#00cc66;
+  --red:#ff3b30;--blue:#00bfff;--yellow:#ffcc00;--orange:#ff6644;
+  --text:#ccc;--text-dim:#888;--text-dark:#555;--text-ghost:#333;
+}
+body{font-family:'JetBrains Mono',Consolas,'Courier New',monospace;background:var(--bg-0);color:var(--text);font-size:12px;min-height:100vh;display:flex;flex-direction:column}
+
+/* === HEADER === */
+.hdr{background:linear-gradient(180deg,var(--bg-4) 0%,var(--bg-3) 100%);padding:6px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--amber)}
+.hdr-logo{display:flex;align-items:center;gap:10px}
+.hdr-logo h1{font-size:14px;font-weight:700;color:var(--amber);letter-spacing:3px}
+.hdr-logo .ver{color:var(--text-ghost);font-size:10px;letter-spacing:1px}
+.hdr-mid{color:var(--text-dark);font-size:10px;letter-spacing:1px}
+.hdr-right{display:flex;align-items:center;gap:14px}
+.hdr-time{color:var(--green);font-size:11px;font-weight:600}
+.hdr-nav{display:flex;gap:4px}
+.hdr-nav a{background:var(--bg-4);border:1px solid var(--border);color:var(--text-dark);padding:4px 10px;font-family:inherit;font-size:9px;cursor:pointer;letter-spacing:0.5px;text-decoration:none}
+.hdr-nav a:hover{color:var(--amber);border-color:var(--amber)}
+.hdr-nav a.active{color:var(--amber);border-color:var(--amber)}
+
+/* === STATUS BAR === */
+.status-bar{background:var(--bg-3);padding:3px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);font-size:9px;color:var(--text-ghost)}
+.status-bar button{background:none;border:1px solid var(--border-2);color:var(--text-dark);padding:2px 8px;font-family:inherit;font-size:9px;cursor:pointer;letter-spacing:0.5px}
+.status-bar button:hover{color:var(--amber);border-color:var(--amber)}
+
+/* === MAIN CONTENT === */
+.main{flex:1;overflow-y:auto;padding:16px}
+
+/* === PAIRS TABLE === */
+.pairs-grid{display:flex;flex-direction:column;gap:8px;max-width:1200px;margin:0 auto}
+.section-title{color:var(--amber);font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+
+.pair-row{background:var(--bg-2);border:1px solid var(--border);padding:12px 16px;display:grid;grid-template-columns:120px 100px 80px 1fr 120px;align-items:center;gap:16px;cursor:pointer;transition:all 0.15s}
+.pair-row:hover{border-color:var(--amber);background:var(--bg-3)}
+.pair-name{font-size:16px;font-weight:700;color:var(--text);letter-spacing:1px}
+.pair-rate{color:var(--text-dim);font-size:11px}
+.pair-score{font-size:22px;font-weight:700;text-align:center}
+.pair-score.bullish{color:var(--green)}
+.pair-score.bearish{color:var(--red)}
+.pair-score.neutral{color:var(--yellow)}
+.pair-bias{font-size:10px;font-weight:600;letter-spacing:1px;text-align:center;padding:3px 10px;border:1px solid}
+.pair-bias.bullish{color:var(--green);border-color:var(--green)}
+.pair-bias.bearish{color:var(--red);border-color:var(--red)}
+.pair-bias.neutral{color:var(--yellow);border-color:var(--yellow)}
+.pair-bar{display:flex;align-items:center;gap:8px}
+.bar-track{flex:1;height:6px;background:var(--bg-4);border-radius:3px;position:relative;overflow:hidden}
+.bar-center{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--text-ghost)}
+.bar-fill{position:absolute;top:0;bottom:0;border-radius:3px;transition:all 0.3s}
+.bar-fill.positive{background:var(--green);right:50%}
+.bar-fill.negative{background:var(--red);left:50%}
+.pair-update{color:var(--text-ghost);font-size:9px;text-align:right}
+
+/* === LOADING === */
+.loading{text-align:center;padding:60px;color:var(--text-dark)}
+.loading .spinner{display:inline-block;width:24px;height:24px;border:2px solid var(--border-2);border-top:2px solid var(--amber);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* === DETAIL VIEW === */
+.detail-view{display:none;max-width:1200px;margin:0 auto}
+.detail-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.detail-pair-name{font-size:24px;font-weight:700;color:var(--amber);letter-spacing:2px}
+.detail-score-box{text-align:center;padding:12px 24px;border:2px solid}
+.detail-score-box.bullish{border-color:var(--green)}
+.detail-score-box.bearish{border-color:var(--red)}
+.detail-score-box.neutral{border-color:var(--yellow)}
+.detail-score-val{font-size:32px;font-weight:700}
+.detail-score-label{font-size:10px;letter-spacing:2px;margin-top:4px}
+.btn-back{background:var(--bg-4);border:1px solid var(--border-2);color:var(--text-dim);padding:6px 16px;font-family:inherit;font-size:10px;cursor:pointer;letter-spacing:1px}
+.btn-back:hover{background:var(--amber);color:#000;border-color:var(--amber)}
+
+.detail-columns{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+.currency-panel{background:var(--bg-2);border:1px solid var(--border);padding:16px}
+.currency-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.currency-title{font-size:14px;font-weight:700;letter-spacing:1px}
+.currency-score{font-size:16px;font-weight:700}
+.currency-score.positive{color:var(--green)}
+.currency-score.negative{color:var(--red)}
+.currency-score.zero{color:var(--text-dark)}
+
+.indicator-row{display:grid;grid-template-columns:1fr 80px 70px 60px;align-items:center;padding:8px 0;border-bottom:1px solid var(--bg-4);font-size:11px}
+.indicator-row:last-child{border-bottom:none}
+.ind-name{color:var(--text)}
+.ind-value{text-align:right;font-weight:600;color:var(--text-dim)}
+.ind-prev{text-align:right;color:var(--text-ghost);font-size:10px}
+.ind-signal{text-align:center;font-weight:700;font-size:10px;padding:2px 6px;border-radius:2px}
+.ind-signal.bullish{color:var(--green);background:rgba(0,255,136,0.08)}
+.ind-signal.bearish{color:var(--red);background:rgba(255,59,48,0.08)}
+.ind-signal.neutral{color:var(--text-ghost)}
+.ind-unavailable{color:var(--text-ghost);font-style:italic;font-size:10px}
+.ind-date{color:var(--text-ghost);font-size:9px;margin-top:2px}
+.ind-desc{color:var(--text-dark);font-size:9px;margin-top:2px}
+
+/* Disclaimer */
+.disclaimer{max-width:1200px;margin:24px auto 0;padding:12px;background:var(--bg-2);border:1px solid var(--border);border-left:3px solid var(--amber);color:var(--text-dark);font-size:9px;line-height:1.5}
+
+/* FX Rate display */
+.fx-rate-box{background:var(--bg-3);border:1px solid var(--border);padding:12px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
+.fx-rate-val{font-size:20px;font-weight:700;color:var(--text)}
+.fx-rate-change{font-size:11px}
+.fx-rate-change.up{color:var(--green)}
+.fx-rate-change.down{color:var(--red)}
+
+@media(max-width:900px){
+  .detail-columns{grid-template-columns:1fr}
+  .pair-row{grid-template-columns:100px 80px 60px 1fr 90px}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-logo">
+    <h1>OLYOS CAPITAL</h1>
+    <span class="ver">FOREX MACRO v1.0</span>
+  </div>
+  <div class="hdr-mid">MACRO CONFLUENCE ANALYSIS</div>
+  <div class="hdr-right">
+    <span class="hdr-time" id="clock"></span>
+    <div class="hdr-nav">
+      <a href="/">DASHBOARD</a>
+      <a href="/screener">SCREENER</a>
+      <a href="/news">NEWS</a>
+      <a href="/forex" class="active">FOREX</a>
+    </div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <span id="status-text">Chargement des donnees macro...</span>
+  <div style="display:flex;gap:8px">
+    <button onclick="refreshData()">REFRESH</button>
+    <button onclick="clearCache()">CLEAR CACHE</button>
+  </div>
+</div>
+
+<!-- MAIN: PAIRS LIST -->
+<div class="main">
+  <div id="pairs-view" class="pairs-grid">
+    <div class="section-title">FOREX PAIRS — CONFLUENCE MACRO</div>
+    <div id="pairs-list" class="loading">
+      <div class="spinner"></div>
+      <div>Analyse des indicateurs macro-economiques...</div>
+      <div style="margin-top:8px;color:var(--text-ghost)">Premiere analyse plus longue (appels API)</div>
+    </div>
+  </div>
+
+  <!-- DETAIL VIEW (hidden by default) -->
+  <div id="detail-view" class="detail-view">
+    <div class="detail-header">
+      <div>
+        <button class="btn-back" onclick="showPairsList()">&lt; RETOUR</button>
+        <span class="detail-pair-name" id="detail-pair-name"></span>
+      </div>
+      <div class="detail-score-box" id="detail-score-box">
+        <div class="detail-score-val" id="detail-score-val"></div>
+        <div class="detail-score-label" id="detail-score-label"></div>
+      </div>
+    </div>
+
+    <!-- FX Rate -->
+    <div class="fx-rate-box" id="fx-rate-box" style="display:none">
+      <div>
+        <div style="color:var(--text-ghost);font-size:9px;letter-spacing:1px">TAUX SPOT</div>
+        <div class="fx-rate-val" id="fx-rate-val"></div>
+      </div>
+      <div style="text-align:right">
+        <div class="fx-rate-change" id="fx-rate-1w"></div>
+        <div class="fx-rate-change" id="fx-rate-1m"></div>
+      </div>
+    </div>
+
+    <div class="detail-columns">
+      <div class="currency-panel" id="base-panel"></div>
+      <div class="currency-panel" id="quote-panel"></div>
+    </div>
+  </div>
+
+  <!-- Disclaimer -->
+  <div class="disclaimer">
+    AVERTISSEMENT : Ce module fournit une confluence macro-economique, pas un signal d'entree.
+    L'analyse technique sur TradingView reste necessaire avant toute prise de position.
+    Les donnees macro peuvent avoir 1-2 jours de decalage par rapport a la publication officielle.
+  </div>
+</div>
+
+<script>
+// === Clock ===
+function updateClock(){
+  const now=new Date();
+  document.getElementById('clock').textContent=
+    now.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})+' '+
+    now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(updateClock,1000);updateClock();
+
+// === State ===
+let pairsData=[];
+
+// === Fetch pairs data ===
+async function fetchPairs(){
+  document.getElementById('status-text').textContent='Chargement des donnees macro...';
+  try{
+    const r=await fetch('/api/forex/pairs');
+    const d=await r.json();
+    if(d.success){
+      pairsData=d.pairs;
+      renderPairs(d.pairs);
+      document.getElementById('status-text').textContent=
+        `${d.count} paires analysees — Derniere MAJ: ${new Date().toLocaleTimeString('fr-FR')}`;
+    }else{
+      document.getElementById('pairs-list').innerHTML=
+        `<div style="color:var(--red)">Erreur: ${d.error}</div>`;
+      document.getElementById('status-text').textContent='Erreur de chargement';
+    }
+  }catch(e){
+    document.getElementById('pairs-list').innerHTML=
+      `<div style="color:var(--red)">Erreur de connexion: ${e.message}</div>`;
+    document.getElementById('status-text').textContent='Erreur de connexion';
+  }
+}
+
+// === Render pairs table ===
+function renderPairs(pairs){
+  const el=document.getElementById('pairs-list');
+  if(!pairs.length){
+    el.innerHTML='<div style="color:var(--text-dark)">Aucune paire configuree</div>';
+    return;
+  }
+  let html='';
+  for(const p of pairs){
+    const biasClass=p.bias_color==='green'?'bullish':(p.bias_color==='red'?'bearish':'neutral');
+    const barPct=Math.abs(p.score)/10*50;
+    const barDir=p.score>=0?'positive':'negative';
+    const barStyle=p.score>=0
+      ?`right:50%;width:${barPct}%`
+      :`left:50%;width:${barPct}%`;
+    const fxDisplay=p.fx_rate?p.fx_rate.current.toFixed(4):'—';
+    const updateTime=p.last_update?new Date(p.last_update).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'—';
+
+    html+=`
+      <div class="pair-row" onclick="showDetail('${p.pair}')">
+        <div>
+          <div class="pair-name">${p.pair}</div>
+          <div class="pair-rate">${fxDisplay}</div>
+        </div>
+        <div class="pair-score ${biasClass}">${p.score>0?'+':''}${p.score}</div>
+        <div class="pair-bias ${biasClass}">${p.bias}</div>
+        <div class="pair-bar">
+          <span style="color:var(--text-ghost);font-size:9px">-10</span>
+          <div class="bar-track">
+            <div class="bar-center"></div>
+            <div class="bar-fill ${barDir}" style="${barStyle}"></div>
+          </div>
+          <span style="color:var(--text-ghost);font-size:9px">+10</span>
+        </div>
+        <div class="pair-update">MAJ ${updateTime}</div>
+      </div>`;
+  }
+  el.innerHTML=html;
+}
+
+// === Show detail view ===
+function showDetail(pairStr){
+  const pair=pairsData.find(p=>p.pair===pairStr);
+  if(!pair)return;
+
+  document.getElementById('pairs-view').style.display='none';
+  document.getElementById('detail-view').style.display='block';
+
+  // Header
+  document.getElementById('detail-pair-name').textContent=pair.pair;
+  const biasClass=pair.bias_color==='green'?'bullish':(pair.bias_color==='red'?'bearish':'neutral');
+  const scoreBox=document.getElementById('detail-score-box');
+  scoreBox.className='detail-score-box '+biasClass;
+  document.getElementById('detail-score-val').textContent=(pair.score>0?'+':'')+pair.score;
+  document.getElementById('detail-score-val').style.color=
+    pair.bias_color==='green'?'var(--green)':(pair.bias_color==='red'?'var(--red)':'var(--yellow)');
+  document.getElementById('detail-score-label').textContent=pair.bias+' CONFLUENCE';
+
+  // FX Rate
+  if(pair.fx_rate){
+    document.getElementById('fx-rate-box').style.display='flex';
+    document.getElementById('fx-rate-val').textContent=pair.fx_rate.current.toFixed(4);
+    const w=pair.fx_rate.change_1w_pct;
+    const m=pair.fx_rate.change_1m_pct;
+    document.getElementById('fx-rate-1w').textContent=`1W: ${w>0?'+':''}${w}%`;
+    document.getElementById('fx-rate-1w').className='fx-rate-change '+(w>=0?'up':'down');
+    document.getElementById('fx-rate-1m').textContent=`1M: ${m>0?'+':''}${m}%`;
+    document.getElementById('fx-rate-1m').className='fx-rate-change '+(m>=0?'up':'down');
+  }else{
+    document.getElementById('fx-rate-box').style.display='none';
+  }
+
+  // Currency panels
+  renderCurrencyPanel('base-panel',pair.base,'BASE');
+  renderCurrencyPanel('quote-panel',pair.quote,'QUOTE');
+}
+
+function renderCurrencyPanel(containerId,data,role){
+  const el=document.getElementById(containerId);
+  const scoreClass=data.score>0?'positive':(data.score<0?'negative':'zero');
+  const flag=getFlagEmoji(data.flag);
+
+  let indHtml='';
+  indHtml+=`<div class="indicator-row" style="color:var(--text-ghost);font-size:9px;font-weight:600;border-bottom:1px solid var(--border)">
+    <div>INDICATEUR</div><div style="text-align:right">VALEUR</div><div style="text-align:right">PREC.</div><div style="text-align:center">SIGNAL</div>
+  </div>`;
+
+  for(const ind of data.indicators){
+    const sigClass=ind.signal>0?'bullish':(ind.signal<0?'bearish':'neutral');
+    const sigText=ind.signal>0?'BULL':(ind.signal<0?'BEAR':'—');
+    const sigArrow=ind.signal>0?'&#9650;':(ind.signal<0?'&#9660;':'&#9654;');
+
+    if(!ind.available){
+      indHtml+=`<div class="indicator-row">
+        <div><div class="ind-name">${ind.name}</div><div class="ind-desc">${ind.description}</div></div>
+        <div class="ind-unavailable" style="text-align:right">N/A</div>
+        <div class="ind-unavailable" style="text-align:right">—</div>
+        <div class="ind-signal neutral">—</div>
+      </div>`;
+    }else{
+      const val=typeof ind.value==='number'?(ind.value%1===0?ind.value:ind.value.toFixed(2)):ind.value;
+      const prev=ind.previous!=null?(typeof ind.previous==='number'?(ind.previous%1===0?ind.previous:ind.previous.toFixed(2)):ind.previous):'—';
+
+      indHtml+=`<div class="indicator-row">
+        <div>
+          <div class="ind-name">${ind.name}</div>
+          <div class="ind-desc">${ind.description}</div>
+          ${ind.date?`<div class="ind-date">${ind.source} | ${ind.date}</div>`:''}
+        </div>
+        <div class="ind-value">${val}</div>
+        <div class="ind-prev">${prev}</div>
+        <div class="ind-signal ${sigClass}">${sigArrow} ${sigText}</div>
+      </div>`;
+    }
+  }
+
+  el.innerHTML=`
+    <div class="currency-header">
+      <div class="currency-title">${flag} ${data.currency} — ${data.name} <span style="color:var(--text-ghost);font-size:10px">(${role})</span></div>
+      <div class="currency-score ${scoreClass}">${data.score>0?'+':''}${data.score} / ${data.max_score}</div>
+    </div>
+    ${indHtml}`;
+}
+
+function getFlagEmoji(code){
+  const flags={
+    'AU':'&#127462;&#127482;','JP':'&#127471;&#127477;','US':'&#127482;&#127480;',
+    'EU':'&#127466;&#127482;','GB':'&#127468;&#127463;'
+  };
+  return flags[code]||'';
+}
+
+// === Navigation ===
+function showPairsList(){
+  document.getElementById('pairs-view').style.display='flex';
+  document.getElementById('detail-view').style.display='none';
+}
+
+// === Actions ===
+function refreshData(){
+  document.getElementById('pairs-list').innerHTML=`
+    <div class="loading"><div class="spinner"></div><div>Rafraichissement en cours...</div></div>`;
+  showPairsList();
+  fetchPairs();
+}
+
+async function clearCache(){
+  try{
+    const r=await fetch('/api/forex/clear_cache');
+    const d=await r.json();
+    if(d.success){
+      document.getElementById('status-text').textContent=`Cache vide (${d.cleared} fichiers). Rafraichissement...`;
+      fetchPairs();
+    }
+  }catch(e){
+    document.getElementById('status-text').textContent='Erreur: '+e.message;
+  }
+}
+
+// === Init ===
+fetchPairs();
+</script>
+</body>
+</html>

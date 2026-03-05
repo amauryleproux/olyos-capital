@@ -172,7 +172,7 @@ async def legacy_action_redirect(request: Request, call_next):
 
 from olyos.routers import alerts, benchmarks, dividends, portfolio, insider
 from olyos.routers import rebalancing, reports, backtest, screener, analysis, cache
-from olyos.routers import pages, news
+from olyos.routers import pages, news, forex_macro, sentiment
 
 app.include_router(alerts.router)
 app.include_router(benchmarks.router)
@@ -186,6 +186,8 @@ app.include_router(screener.router)
 app.include_router(news.router)
 app.include_router(analysis.router)
 app.include_router(cache.router)
+app.include_router(forex_macro.router)
+app.include_router(sentiment.router)
 app.include_router(pages.router)
 
 

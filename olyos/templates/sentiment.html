@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Olyos Capital — Sentiment & Macro Intelligence</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2308081a'/><circle cx='16' cy='16' r='4' fill='%23c9a84c'/></svg>">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-0:#04040a;--bg-1:#08080e;--bg-2:#0a0a12;--bg-3:#0d0d14;--bg-4:#111118;
+  --border:#1a1a2e;--border-2:#2a2a3e;
+  --amber:#ff9500;--green:#00ff88;--red:#ff3b30;--blue:#00bfff;--yellow:#ffcc00;--purple:#a855f7;
+  --text:#ccc;--text-dim:#888;--text-dark:#555;--text-ghost:#333;
+}
+body{font-family:'JetBrains Mono',Consolas,monospace;background:var(--bg-0);color:var(--text);font-size:12px;min-height:100vh;display:flex;flex-direction:column}
+
+/* === HEADER === */
+.hdr{background:linear-gradient(180deg,var(--bg-4),var(--bg-3));padding:6px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--amber)}
+.hdr-logo{display:flex;align-items:center;gap:10px}
+.hdr-logo h1{font-size:14px;font-weight:700;color:var(--amber);letter-spacing:3px}
+.hdr-logo .ver{color:var(--text-ghost);font-size:10px;letter-spacing:1px}
+.hdr-right{display:flex;align-items:center;gap:14px}
+.hdr-time{color:var(--green);font-size:11px;font-weight:600}
+.hdr-nav{display:flex;gap:4px}
+.hdr-nav a{background:var(--bg-4);border:1px solid var(--border);color:var(--text-dark);padding:4px 10px;font-family:inherit;font-size:9px;cursor:pointer;letter-spacing:.5px;text-decoration:none}
+.hdr-nav a:hover{color:var(--amber);border-color:var(--amber)}
+.hdr-nav a.active{color:var(--amber);border-color:var(--amber)}
+
+/* === TABS === */
+.tabs{background:var(--bg-3);padding:0 16px;display:flex;gap:0;border-bottom:1px solid var(--border)}
+.tab{padding:8px 20px;font-family:inherit;font-size:10px;font-weight:600;letter-spacing:1px;cursor:pointer;border:none;background:none;color:var(--text-dark);border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--amber);border-bottom-color:var(--amber)}
+
+/* === STATUS BAR === */
+.status-bar{background:var(--bg-3);padding:3px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);font-size:9px;color:var(--text-ghost)}
+.status-bar button{background:none;border:1px solid var(--border-2);color:var(--text-dark);padding:2px 8px;font-family:inherit;font-size:9px;cursor:pointer;letter-spacing:.5px}
+.status-bar button:hover{color:var(--amber);border-color:var(--amber)}
+
+/* === MAIN === */
+.main{flex:1;overflow-y:auto;padding:16px}
+.panel{display:none;max-width:1200px;margin:0 auto}
+.panel.active{display:block}
+
+/* === LOADING === */
+.loader{text-align:center;padding:40px;color:var(--text-dark)}
+.loader .spinner{display:inline-block;width:20px;height:20px;border:2px solid var(--border-2);border-top:2px solid var(--amber);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{font-size:10px;color:var(--text-ghost);margin-top:4px}
+
+/* === BADGES === */
+.badge{display:inline-block;padding:2px 8px;font-size:9px;font-weight:700;letter-spacing:1px;border-radius:2px;font-family:inherit}
+.badge-bullish,.badge-BULLISH,.badge-STRONG_BULLISH{color:var(--green);background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.2)}
+.badge-bearish,.badge-BEARISH,.badge-STRONG_BEARISH{color:var(--red);background:rgba(255,59,48,.1);border:1px solid rgba(255,59,48,.2)}
+.badge-neutral,.badge-NEUTRAL{color:var(--yellow);background:rgba(255,204,0,.08);border:1px solid rgba(255,204,0,.15)}
+.badge-FAVORABLE{color:var(--green);background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.2)}
+.badge-DEFAVORABLE{color:var(--red);background:rgba(255,59,48,.1);border:1px solid rgba(255,59,48,.2)}
+.badge-NEUTRE{color:var(--yellow);background:rgba(255,204,0,.08);border:1px solid rgba(255,204,0,.15)}
+
+/* === ASSET TAG === */
+.asset-tag{display:inline-block;padding:2px 6px;font-size:10px;font-weight:600;border-radius:2px;margin:2px;font-family:inherit}
+.asset-tag.positive{color:var(--green);background:rgba(0,255,136,.06)}
+.asset-tag.negative{color:var(--red);background:rgba(255,59,48,.06)}
+
+/* === SCORE BAR === */
+.score-bar-wrap{display:flex;align-items:center;gap:8px;margin:4px 0}
+.score-bar{position:relative;width:160px;height:8px;background:var(--bg-4);border-radius:4px;overflow:hidden}
+.score-bar .center{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--text-ghost)}
+.score-bar .fill{position:absolute;top:0;bottom:0;border-radius:4px;transition:width .3s}
+.score-val{font-size:14px;font-weight:700;min-width:30px}
+.score-val.pos{color:var(--green)}
+.score-val.neg{color:var(--red)}
+.score-val.zero{color:var(--text-dark)}
+
+/* === CARDS === */
+.section-title{color:var(--amber);font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.card{background:var(--bg-2);border:1px solid var(--border);padding:14px;margin-bottom:10px}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.card-title{font-size:12px;font-weight:600;color:var(--text)}
+.card-body{font-size:11px;color:var(--text-dim);line-height:1.6}
+
+/* === GEO THEME === */
+.theme-card{background:var(--bg-2);border:1px solid var(--border);padding:14px;margin-bottom:8px;cursor:pointer;transition:all .15s}
+.theme-card:hover{border-color:var(--amber)}
+.theme-card.analyzed{border-left:3px solid var(--amber)}
+.theme-label{font-size:12px;font-weight:600;color:var(--text)}
+.theme-assets{margin-top:4px;font-size:10px;color:var(--text-dark)}
+.theme-result{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.theme-text{font-size:11px;color:var(--text-dim);line-height:1.6;margin:8px 0}
+.impact-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px}
+.impact-reason{color:var(--text-dark);font-size:10px}
+.higgons-box{background:var(--bg-3);border:1px solid var(--border);border-left:3px solid var(--purple);padding:10px;margin-top:10px;font-size:11px;color:var(--text-dim);line-height:1.5}
+.higgons-box-title{color:var(--purple);font-size:9px;font-weight:600;letter-spacing:1px;margin-bottom:4px}
+.btn-analyze{background:var(--bg-4);border:1px solid var(--border-2);color:var(--text-dim);padding:4px 12px;font-family:inherit;font-size:9px;cursor:pointer;letter-spacing:.5px;margin-top:6px}
+.btn-analyze:hover{color:var(--amber);border-color:var(--amber)}
+.btn-analyze:disabled{opacity:.4;cursor:not-allowed}
+
+/* === GLOBAL SENTIMENT GRID === */
+.sentiment-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.sentiment-card{background:var(--bg-2);border:1px solid var(--border);padding:14px}
+.sentiment-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.sentiment-asset{font-size:16px;font-weight:700;letter-spacing:1px}
+.sentiment-summary{font-size:10px;color:var(--text-dim);line-height:1.5;margin-top:6px}
+
+/* === HIGGONS === */
+.regime-box{background:var(--bg-2);border:2px solid var(--border);padding:20px;text-align:center;margin-bottom:16px}
+.regime-title{font-size:10px;color:var(--text-ghost);letter-spacing:2px;margin-bottom:8px}
+.regime-value{font-size:28px;font-weight:700}
+.regime-explanation{font-size:11px;color:var(--text-dim);margin-top:8px;line-height:1.5}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.list-item{padding:8px;border-bottom:1px solid var(--bg-4);font-size:11px}
+.list-item:last-child{border-bottom:none}
+.list-title{font-weight:600;color:var(--text)}
+.list-desc{color:var(--text-dark);font-size:10px;margin-top:2px}
+.severity{font-size:9px;font-weight:600;letter-spacing:.5px}
+.severity.HIGH{color:var(--red)}
+.severity.MEDIUM{color:var(--yellow)}
+.severity.LOW{color:var(--green)}
+.sector-tag{display:inline-block;padding:3px 8px;margin:2px;font-size:10px;border:1px solid var(--border);color:var(--text-dim);border-radius:2px}
+.sector-tag.favor{border-color:var(--green);color:var(--green)}
+.sector-tag.avoid{border-color:var(--red);color:var(--red)}
+.tactical-box{background:var(--bg-3);border:1px solid var(--border);border-left:3px solid var(--amber);padding:12px;margin-top:16px;font-size:11px;color:var(--text-dim);line-height:1.6}
+
+/* === ERROR === */
+.error-box{background:rgba(255,59,48,.05);border:1px solid rgba(255,59,48,.2);padding:12px;color:var(--red);font-size:11px;margin:10px 0}
+
+@media(max-width:700px){.two-col{grid-template-columns:1fr}.sentiment-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-logo">
+    <h1>OLYOS CAPITAL</h1>
+    <span class="ver">SENTIMENT v1.0</span>
+  </div>
+  <div class="hdr-right">
+    <span class="hdr-time" id="clock"></span>
+    <div class="hdr-nav">
+      <a href="/">DASHBOARD</a>
+      <a href="/screener">SCREENER</a>
+      <a href="/news">NEWS</a>
+      <a href="/forex">FOREX</a>
+      <a href="/sentiment" class="active">SENTIMENT</a>
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('geo')">GEOPOLITIQUE</button>
+  <button class="tab" onclick="switchTab('global')">SENTIMENT GLOBAL</button>
+  <button class="tab" onclick="switchTab('higgons')">HIGGONS SIGNALS</button>
+</div>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <span id="status-text">Pret — Selectionnez un onglet pour lancer l'analyse IA</span>
+  <div style="display:flex;gap:8px">
+    <button onclick="clearCache()">CLEAR CACHE</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- ═══ TAB 1: GEOPOLITIQUE ═══ -->
+  <div id="panel-geo" class="panel active">
+    <div class="section-title">THEMES GEOPOLITIQUES — ANALYSE IA + WEB SEARCH</div>
+    <div style="font-size:10px;color:var(--text-ghost);margin-bottom:12px">
+      Cliquez sur "Analyser" pour lancer une analyse IA avec recherche web en temps reel (15-25s)
+    </div>
+    <div id="geo-themes"></div>
+  </div>
+
+  <!-- ═══ TAB 2: SENTIMENT GLOBAL ═══ -->
+  <div id="panel-global" class="panel">
+    <div class="section-title">SENTIMENT GLOBAL — DEVISES & ASSETS</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span style="font-size:10px;color:var(--text-ghost)">Scores de -10 (bearish) a +10 (bullish) generes par IA</span>
+      <button class="btn-analyze" id="btn-global" onclick="fetchGlobal()">GENERER ANALYSE</button>
+    </div>
+    <div id="global-content">
+      <div style="color:var(--text-dark);text-align:center;padding:40px">
+        Cliquez sur "GENERER ANALYSE" pour obtenir les scores de sentiment
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB 3: HIGGONS SIGNALS ═══ -->
+  <div id="panel-higgons" class="panel">
+    <div class="section-title">HIGGONS SIGNALS — REGIME DE MARCHE</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span style="font-size:10px;color:var(--text-ghost)">Analyse du regime pour la strategie value investing William Higgons</span>
+      <button class="btn-analyze" id="btn-higgons" onclick="fetchHiggons()">GENERER ANALYSE</button>
+    </div>
+    <div id="higgons-content">
+      <div style="color:var(--text-dark);text-align:center;padding:40px">
+        Cliquez sur "GENERER ANALYSE" pour obtenir l'analyse du regime de marche
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// === Clock ===
+function updateClock(){
+  const now=new Date();
+  document.getElementById('clock').textContent=
+    now.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})+' '+
+    now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(updateClock,1000);updateClock();
+
+// === Tabs ===
+function switchTab(id){
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['geo','global','higgons'][i]===id));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-'+id).classList.add('active');
+}
+
+// === Helpers ===
+function signalBadge(signal){
+  const arrows={STRONG_BULLISH:'&#9650;&#9650;',BULLISH:'&#9650;',NEUTRAL:'&#9654;',BEARISH:'&#9660;',STRONG_BEARISH:'&#9660;&#9660;',
+    FAVORABLE:'&#9650;',DEFAVORABLE:'&#9660;',NEUTRE:'&#9654;'};
+  const labels={STRONG_BULLISH:'STRONG BULL',BULLISH:'BULLISH',NEUTRAL:'NEUTRE',BEARISH:'BEARISH',STRONG_BEARISH:'STRONG BEAR',
+    FAVORABLE:'FAVORABLE',DEFAVORABLE:'DEFAVORABLE',NEUTRE:'NEUTRE'};
+  return `<span class="badge badge-${signal}">${arrows[signal]||''} ${labels[signal]||signal}</span>`;
+}
+
+function scoreBar(score,max=10){
+  const pct=Math.abs(score)/max*50;
+  const cls=score>0?'pos':(score<0?'neg':'zero');
+  const color=score>0?'var(--green)':(score<0?'var(--red)':'var(--text-dark)');
+  const style=score>=0?`left:50%;width:${pct}%`:`right:50%;width:${pct}%`;
+  return `<div class="score-bar-wrap">
+    <div class="score-bar"><div class="center"></div><div class="fill" style="${style};background:${color}"></div></div>
+    <span class="score-val ${cls}">${score>0?'+':''}${score}</span>
+  </div>`;
+}
+
+function loader(msg){
+  return `<div class="loader"><div class="spinner"></div><div>${msg}</div><div class="loader-text">Recherche web & analyse IA en cours...</div></div>`;
+}
+
+function setStatus(msg){document.getElementById('status-text').textContent=msg;}
+
+// === GEO THEMES ===
+async function loadThemes(){
+  try{
+    const r=await fetch('/api/sentiment/themes');
+    const d=await r.json();
+    renderThemes(d.themes);
+  }catch(e){
+    document.getElementById('geo-themes').innerHTML=`<div class="error-box">Erreur: ${e.message}</div>`;
+  }
+}
+
+function renderThemes(themes){
+  const el=document.getElementById('geo-themes');
+  el.innerHTML=themes.map(t=>`
+    <div class="theme-card" id="theme-${t.id}">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="theme-label">${t.label}</div>
+          <div class="theme-assets">${t.assets.map(a=>`<span class="asset-tag">${a}</span>`).join('')}</div>
+        </div>
+        <button class="btn-analyze" id="btn-${t.id}" onclick="analyzeTheme('${t.id}')">ANALYSER</button>
+      </div>
+      <div id="result-${t.id}"></div>
+    </div>`).join('');
+}
+
+async function analyzeTheme(id){
+  const btn=document.getElementById('btn-'+id);
+  const resultEl=document.getElementById('result-'+id);
+  btn.disabled=true;btn.textContent='ANALYSE...';
+  resultEl.innerHTML=loader('Analyse du theme...');
+  setStatus(`Analyse en cours : ${id}...`);
+
+  try{
+    const r=await fetch(`/api/sentiment/geopolitical?theme_id=${id}`,{method:'POST'});
+    const d=await r.json();
+    if(d.error){
+      resultEl.innerHTML=`<div class="error-box">${d.error}</div>`;
+    }else{
+      document.getElementById('theme-'+id).classList.add('analyzed');
+      resultEl.innerHTML=renderThemeResult(d);
+      setStatus(`Analyse "${d.theme_label||id}" terminee${d.from_cache?' (cache)':''}`);
+    }
+  }catch(e){
+    resultEl.innerHTML=`<div class="error-box">Erreur: ${e.message}</div>`;
+  }
+  btn.disabled=false;btn.textContent='ANALYSER';
+}
+
+function renderThemeResult(d){
+  let impactsHtml='';
+  if(d.impacts){
+    impactsHtml=d.impacts.map(i=>`
+      <div class="impact-row">
+        <span class="asset-tag ${i.direction}">${i.asset} ${i.direction==='positive'?'&#9650;':'&#9660;'}</span>
+        <span class="impact-reason">${i.reason}</span>
+      </div>`).join('');
+  }
+  return `<div class="theme-result">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      ${signalBadge(d.signal||'NEUTRAL')}
+      ${d.from_cache?'<span style="color:var(--text-ghost);font-size:9px">CACHE</span>':''}
+    </div>
+    <div class="theme-text">${d.text||''}</div>
+    ${impactsHtml?'<div style="margin-top:8px;font-size:9px;color:var(--text-ghost);letter-spacing:1px">IMPACTS CROSS-ASSETS</div>'+impactsHtml:''}
+    ${d.higgons_impact?`<div class="higgons-box"><div class="higgons-box-title">IMPACT HIGGONS</div>${d.higgons_impact}</div>`:''}
+    ${d.generated_at?`<div style="margin-top:8px;font-size:9px;color:var(--text-ghost)">Genere : ${d.generated_at}</div>`:''}
+  </div>`;
+}
+
+// === GLOBAL SENTIMENT ===
+async function fetchGlobal(){
+  const btn=document.getElementById('btn-global');
+  const el=document.getElementById('global-content');
+  btn.disabled=true;btn.textContent='ANALYSE...';
+  el.innerHTML=loader('Analyse du sentiment global...');
+  setStatus('Analyse sentiment global en cours...');
+
+  try{
+    const r=await fetch('/api/sentiment/global',{method:'POST'});
+    const d=await r.json();
+    if(d.error){
+      el.innerHTML=`<div class="error-box">${d.error}</div>`;
+    }else{
+      renderGlobal(d);
+      setStatus(`Sentiment global analyse${d.from_cache?' (cache)':''} — ${d.generated_at||''}`);
+    }
+  }catch(e){
+    el.innerHTML=`<div class="error-box">Erreur: ${e.message}</div>`;
+  }
+  btn.disabled=false;btn.textContent='GENERER ANALYSE';
+}
+
+function renderGlobal(d){
+  const el=document.getElementById('global-content');
+  const scores=d.scores||d;
+  let html='';
+
+  if(d.market_summary){
+    html+=`<div class="card" style="margin-bottom:14px;border-left:3px solid var(--amber)">
+      <div style="font-size:9px;color:var(--amber);letter-spacing:1px;margin-bottom:4px">RESUME MARCHE</div>
+      <div style="font-size:11px;color:var(--text-dim);line-height:1.6">${d.market_summary}</div>
+    </div>`;
+  }
+
+  html+='<div class="sentiment-grid">';
+  const assets=['USD','EUR','GBP','JPY','CAD','AUD','OIL','GOLD'];
+  for(const a of assets){
+    const s=scores[a];
+    if(!s)continue;
+    html+=`<div class="sentiment-card">
+      <div class="sentiment-card-header">
+        <span class="sentiment-asset">${a}</span>
+        ${signalBadge(s.signal||'NEUTRAL')}
+      </div>
+      ${scoreBar(s.score||0)}
+      <div class="sentiment-summary">${s.summary||''}</div>
+    </div>`;
+  }
+  html+='</div>';
+  el.innerHTML=html;
+}
+
+// === HIGGONS REGIME ===
+async function fetchHiggons(){
+  const btn=document.getElementById('btn-higgons');
+  const el=document.getElementById('higgons-content');
+  btn.disabled=true;btn.textContent='ANALYSE...';
+  el.innerHTML=loader('Analyse du regime Higgons...');
+  setStatus('Analyse regime Higgons en cours...');
+
+  try{
+    const r=await fetch('/api/sentiment/higgons',{method:'POST'});
+    const d=await r.json();
+    if(d.error){
+      el.innerHTML=`<div class="error-box">${d.error}</div>`;
+    }else{
+      renderHiggons(d);
+      setStatus(`Regime Higgons analyse${d.from_cache?' (cache)':''} — ${d.generated_at||''}`);
+    }
+  }catch(e){
+    el.innerHTML=`<div class="error-box">Erreur: ${e.message}</div>`;
+  }
+  btn.disabled=false;btn.textContent='GENERER ANALYSE';
+}
+
+function renderHiggons(d){
+  const el=document.getElementById('higgons-content');
+  const regime=d.market_regime||'NEUTRE';
+  const regimeColor=regime==='FAVORABLE'?'var(--green)':(regime==='DEFAVORABLE'?'var(--red)':'var(--yellow)');
+
+  let risksHtml='';
+  if(d.key_risks&&d.key_risks.length){
+    risksHtml=`<div class="card"><div class="card-header"><span class="card-title" style="color:var(--red)">RISQUES</span></div>
+      ${d.key_risks.map(r=>`<div class="list-item">
+        <div style="display:flex;justify-content:space-between"><span class="list-title">${r.title}</span><span class="severity ${r.severity}">${r.severity}</span></div>
+        <div class="list-desc">${r.description}</div>
+      </div>`).join('')}</div>`;
+  }
+
+  let oppsHtml='';
+  if(d.key_opportunities&&d.key_opportunities.length){
+    oppsHtml=`<div class="card"><div class="card-header"><span class="card-title" style="color:var(--green)">OPPORTUNITES</span></div>
+      ${d.key_opportunities.map(o=>`<div class="list-item">
+        <div style="display:flex;justify-content:space-between"><span class="list-title">${o.title}</span><span class="severity ${o.conviction}" style="color:${o.conviction==='HIGH'?'var(--green)':'var(--yellow)'}">${o.conviction}</span></div>
+        <div class="list-desc">${o.description}</div>
+      </div>`).join('')}</div>`;
+  }
+
+  let sectorsHtml='';
+  if(d.sectors_favored||d.sectors_avoid){
+    sectorsHtml=`<div class="card"><div class="card-header"><span class="card-title">SECTEURS</span></div><div class="card-body">
+      ${d.sectors_favored?'<div style="margin-bottom:6px"><span style="color:var(--text-ghost);font-size:9px;letter-spacing:1px">FAVORISER : </span>'+d.sectors_favored.map(s=>`<span class="sector-tag favor">${s}</span>`).join('')+'</div>':''}
+      ${d.sectors_avoid?'<div><span style="color:var(--text-ghost);font-size:9px;letter-spacing:1px">EVITER : </span>'+d.sectors_avoid.map(s=>`<span class="sector-tag avoid">${s}</span>`).join('')+'</div>':''}
+    </div></div>`;
+  }
+
+  el.innerHTML=`
+    <div class="regime-box" style="border-color:${regimeColor}">
+      <div class="regime-title">REGIME DE MARCHE</div>
+      <div class="regime-value" style="color:${regimeColor}">${signalBadge(regime)}</div>
+      ${scoreBar(d.regime_score||0,5)}
+      <div class="regime-explanation">${d.regime_explanation||''}</div>
+    </div>
+    <div class="two-col">${risksHtml}${oppsHtml}</div>
+    ${sectorsHtml}
+    ${d.tactical_note?`<div class="tactical-box"><div style="color:var(--amber);font-size:9px;font-weight:600;letter-spacing:1px;margin-bottom:4px">NOTE TACTIQUE</div>${d.tactical_note}</div>`:''}
+    ${d.generated_at?`<div style="margin-top:10px;font-size:9px;color:var(--text-ghost)">Genere : ${d.generated_at}${d.from_cache?' (cache)':''}</div>`:''}`;
+}
+
+// === CACHE ===
+async function clearCache(){
+  try{
+    await fetch('/api/sentiment/cache/clear',{method:'POST'});
+    setStatus('Cache sentiment vide');
+  }catch(e){setStatus('Erreur: '+e.message);}
+}
+
+// === INIT ===
+loadThemes();
+</script>
+</body>
+</html>
